@@ -11,7 +11,7 @@ dependencies:
   dartssh2: 2.22.2
   flutter:
     sdk: flutter
-  flutter_secure_storage: 9.2.2
+  flutter_secure_storage_ohos: 1.0.0
   web_socket_channel: 3.0.1
 
 dev_dependencies:
@@ -21,4 +21,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
