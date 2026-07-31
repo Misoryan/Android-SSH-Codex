@@ -92,4 +92,3 @@ void main() {
     await expectLater(response, throwsA(isA<RpcDisconnectedException>()));
   });
 }
-

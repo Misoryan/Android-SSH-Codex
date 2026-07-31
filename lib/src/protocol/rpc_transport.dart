@@ -5,4 +5,3 @@ abstract interface class RpcTransport {
 
   Future<void> close();
 }
-

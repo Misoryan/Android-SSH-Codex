@@ -139,7 +139,9 @@ final class JsonRpcClient {
     if (_closed) return;
     _closed = true;
     _failPending(RpcDisconnectedException(
-      error == null ? 'RPC transport disconnected' : 'RPC transport failed: $error',
+      error == null
+          ? 'RPC transport disconnected'
+          : 'RPC transport failed: $error',
     ));
   }
 

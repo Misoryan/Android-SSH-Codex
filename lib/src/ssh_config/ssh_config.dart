@@ -2,7 +2,9 @@ final class SshConfig {
   SshConfig._(this._sections);
 
   factory SshConfig.parse(String source) {
-    final sections = <_HostSection>[_HostSection(const ['*'])];
+    final sections = <_HostSection>[
+      _HostSection(const ['*'])
+    ];
     var current = sections.first;
 
     for (final rawLine in source.split(RegExp(r'\r?\n'))) {

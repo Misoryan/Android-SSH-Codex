@@ -131,7 +131,7 @@ enum _TaskEventType { status, agentDelta, item }
 
 final class TaskEvent {
   const TaskEvent.statusChanged(this.taskId, this.status)
-      : type = _TaskEventType.status,
+      : _type = _TaskEventType.status,
         itemId = null,
         eventId = null,
         delta = null,
@@ -139,26 +139,22 @@ final class TaskEvent {
 
   const TaskEvent.agentDelta(
     this.taskId,
-    String itemId,
-    String eventId,
-    String delta,
-  )   : type = _TaskEventType.agentDelta,
-        itemId = itemId,
-        eventId = eventId,
-        delta = delta,
+    this.itemId,
+    this.eventId,
+    this.delta,
+  )   : _type = _TaskEventType.agentDelta,
         item = null,
         status = null;
 
-  const TaskEvent.itemChanged(this.taskId, TaskItem item)
-      : type = _TaskEventType.item,
-        item = item,
+  const TaskEvent.itemChanged(this.taskId, this.item)
+      : _type = _TaskEventType.item,
         itemId = null,
         eventId = null,
         delta = null,
         status = null;
 
   final String taskId;
-  final _TaskEventType type;
+  final _TaskEventType _type;
   final TaskStatus? status;
   final String? itemId;
   final String? eventId;
@@ -222,7 +218,8 @@ final class TaskReducer {
         title: snapshot.title,
         status: effectiveStatus,
         cwd: snapshot.cwd,
-        updatedAt: changedDuringRefresh ? current.updatedAt : snapshot.updatedAt,
+        updatedAt:
+            changedDuringRefresh ? current.updatedAt : snapshot.updatedAt,
         items: changedDuringRefresh ? current.items : snapshot.items,
         ownership: ownership,
         revision: current?.revision ?? token.eventRevision,
@@ -249,7 +246,7 @@ final class TaskReducer {
     var current = _state.tasks[event.taskId] ??
         TaskRecord.placeholder(event.taskId, revision);
 
-    switch (event.type) {
+    switch (event._type) {
       case _TaskEventType.status:
         current = current.copyWith(
           status: event.status,
