@@ -15,4 +15,22 @@ void main() {
     expect(find.text('Add host'), findsOneWidget);
     expect(find.text('Remote Codex'), findsOneWidget);
   });
+
+  for (final size in [const Size(360, 800), const Size(1200, 800)]) {
+    testWidgets('workspace has no layout exception at ${size.width}px', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        AndroidSshCodexApp(controller: AppController.memory()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

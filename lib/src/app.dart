@@ -131,10 +131,16 @@ class _DesktopNavigation extends StatelessWidget {
                   children: [
                     Icon(Icons.terminal, size: 22),
                     SizedBox(width: 10),
-                    Text(
-                      'Remote Codex',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                    Expanded(
+                      child: Text(
+                        'Remote Codex',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                   ],
                 ),
