@@ -31,6 +31,10 @@ jobs:
           key: pub-${{ runner.os }}-${{ hashFiles('pubspec.yaml', 'pubspec.lock') }}
           restore-keys: pub-${{ runner.os }}-
       - run: flutter pub get
+      - uses: actions/upload-artifact@v7
+        with:
+          name: resolved-pubspec-lock
+          path: pubspec.lock
       - name: Verify dependency lock
         run: git diff --exit-code -- pubspec.lock
       - run: dart format --output=none --set-exit-if-changed lib test
