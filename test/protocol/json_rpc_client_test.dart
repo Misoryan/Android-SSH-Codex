@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 final class FakeTransport implements RpcTransport {
   final incoming = StreamController<String>();
   final sent = <String>[];
+  var closeCalls = 0;
 
   @override
   Stream<String> get messages => incoming.stream;
@@ -17,7 +18,8 @@ final class FakeTransport implements RpcTransport {
 
   @override
   Future<void> close() async {
-    await incoming.close();
+    closeCalls++;
+    if (!incoming.isClosed) await incoming.close();
   }
 }
 
@@ -90,5 +92,22 @@ void main() {
     await transport.incoming.close();
 
     await expectLater(response, throwsA(isA<RpcDisconnectedException>()));
+  });
+
+  test('closes public event streams when the transport disconnects', () async {
+    final notificationsDone = client.notifications.drain<void>();
+    final requestsDone = client.serverRequests.drain<void>();
+
+    await transport.incoming.close();
+
+    await notificationsDone.timeout(const Duration(seconds: 1));
+    await requestsDone.timeout(const Duration(seconds: 1));
+  });
+
+  test('close still releases transport after a remote disconnect', () async {
+    await transport.incoming.close();
+    await client.close();
+
+    expect(transport.closeCalls, 1);
   });
 }
