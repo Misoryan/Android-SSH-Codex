@@ -1,0 +1,24 @@
+name: android_ssh_codex
+description: A mobile Codex UI that controls a remote Codex app-server over SSH.
+version: 0.1.0+1
+publish_to: none
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  collection: ^1.18.0
+  dartssh2: 2.22.2
+  flutter:
+    sdk: flutter
+  flutter_secure_storage: 9.2.2
+  web_socket_channel: 3.0.1
+
+dev_dependencies:
+  flutter_lints: 4.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+
