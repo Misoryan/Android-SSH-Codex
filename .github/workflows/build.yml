@@ -36,7 +36,7 @@ jobs:
           channel: stable
           cache: true
       - name: Cache Pub and Gradle
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.pub-cache
@@ -58,7 +58,7 @@ jobs:
           cp build/app/outputs/bundle/release/*.aab dist/android/
           cd dist/android
           sha256sum *.apk *.aab > SHA256SUMS-android.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android-release
           path: dist/android
@@ -81,7 +81,7 @@ jobs:
           version: ${{ env.OHOS_SDK_VERSION }}
           cache: true
       - name: Cache Flutter-OH and Pub
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/flutter-ohos
@@ -120,7 +120,7 @@ jobs:
           cp "$hap" dist/ohos/android-ssh-codex-ohos-arm64-unsigned.hap
           cd dist/ohos
           sha256sum *.hap > SHA256SUMS-ohos.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ohos-release
           path: dist/ohos
@@ -135,7 +135,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           pattern: "*-release"
           path: dist

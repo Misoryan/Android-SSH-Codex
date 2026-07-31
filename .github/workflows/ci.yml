@@ -18,25 +18,19 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.35.7
           channel: stable
           cache: true
       - name: Cache Pub packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.pub-cache
           key: pub-${{ runner.os }}-${{ hashFiles('pubspec.yaml', 'pubspec.lock') }}
           restore-keys: pub-${{ runner.os }}-
       - run: flutter pub get
-      - name: Upload resolved dependency lock
-        uses: actions/upload-artifact@v4
-        with:
-          name: dependency-lock
-          path: pubspec.lock
-          retention-days: 1
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
       - run: flutter test --reporter expanded
