@@ -37,11 +37,11 @@ class _TaskViewState extends State<TaskView> {
         const Divider(height: 1),
         if (task.ownership == TaskOwnership.external)
           const MaterialBanner(
-            leading: const Icon(Icons.lock_outline),
-            content: const Text(
+            leading: Icon(Icons.lock_outline),
+            content: Text(
               'Running in another Codex client. Updates are visible here; controls remain read-only.',
             ),
-            actions: const [SizedBox.shrink()],
+            actions: [SizedBox.shrink()],
           ),
         Expanded(
           child: task.items.isEmpty
