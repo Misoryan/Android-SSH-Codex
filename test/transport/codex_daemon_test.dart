@@ -31,7 +31,8 @@ void main() {
     expect(script, contains(r'rm -f "$socket" "$pidfile"'));
   });
 
-  test('bootstrap never removes socket state before owning the startup lock', () {
+  test('bootstrap never removes socket state before owning the startup lock',
+      () {
     const script = CodexDaemon.bootstrapScript;
 
     final lockAcquisition = script.indexOf(r'while ! mkdir "$lock"');
