@@ -7,7 +7,7 @@ void main() {
 
     expect(script, contains('android-ssh-codex'));
     expect(script, contains(r'mkdir "$lock"'));
-    expect(script, contains('app-server --listen unix://'));
+    expect(script, contains(r'app-server --listen "unix://$socket"'));
     expect(script, isNot(contains('kill ')));
     expect(script, isNot(contains('pkill')));
     expect(script, isNot(contains('killall')));
