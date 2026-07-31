@@ -74,7 +74,12 @@ final class AppController extends ChangeNotifier {
   bool get isConnected => _connectionPhase == RemoteConnectionPhase.connected;
 
   Future<void> initialize() async {
-    _profiles = await _store.readProfiles();
+    try {
+      _profiles = await _store.readProfiles();
+    } catch (exception) {
+      _profiles = const [];
+      _error = 'Could not read secure storage: $exception';
+    }
     notifyListeners();
   }
 
