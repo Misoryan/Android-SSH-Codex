@@ -5,8 +5,8 @@
 Android SSH Codex is a mobile client for Codex processes that run on a user's
 existing SSH host. The application renders a Codex Desktop-inspired task UI,
 but never installs, authenticates, or runs Codex on the phone. The first release
-targets Android 8+ and OpenHarmony/HarmonyOS NEXT devices supported by
-Flutter-OH 3.35.8 from OpenHarmony-TPC. Remote hosts are POSIX systems with OpenSSH,
+targets Android 8+ and OpenHarmony/HarmonyOS NEXT devices supported by the
+Flutter-OH 3.41 release line from OpenHarmony-TPC. Remote hosts are POSIX systems with OpenSSH,
 a current Codex CLI, and a writable home directory.
 
 The first release includes:
