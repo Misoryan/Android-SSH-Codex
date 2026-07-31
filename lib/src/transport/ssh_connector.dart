@@ -34,7 +34,8 @@ final class HostKeyMismatchException implements Exception {
       'Delete and recreate the host profile to trust a replacement key.';
 }
 
-String formatHostKeyFingerprint(List<int> bytes) => 'SHA256:${base64Encode(bytes)}';
+String formatHostKeyFingerprint(List<int> bytes) =>
+    'SHA256:${base64Encode(bytes)}';
 
 typedef HostKeyPrompt = Future<bool> Function(HostKeyChallenge challenge);
 
