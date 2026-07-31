@@ -42,6 +42,16 @@ void main() {
     expect(reducer.state.tasks, isEmpty);
   });
 
+  test('a reconnect can retain stale tasks until its first refresh', () {
+    final epoch = reducer.beginConnection();
+    final refresh = reducer.beginRefresh(epoch);
+    reducer.applyRefresh(refresh, [snapshot('retained')], const {});
+
+    reducer.beginConnection(clearTasks: false);
+
+    expect(reducer.state.tasks.keys, ['retained']);
+  });
+
   test('discards an older overlapping refresh generation', () {
     final epoch = reducer.beginConnection();
     final older = reducer.beginRefresh(epoch);

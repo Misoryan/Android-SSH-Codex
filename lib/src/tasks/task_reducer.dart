@@ -168,13 +168,13 @@ final class TaskReducer {
 
   TaskState get state => _state;
 
-  int beginConnection() {
+  int beginConnection({bool clearTasks = true}) {
     _seenEvents.clear();
     _state = TaskState(
       epoch: _state.epoch + 1,
       refreshGeneration: 0,
       eventRevision: _state.eventRevision,
-      tasks: const {},
+      tasks: clearTasks ? const {} : _state.tasks,
     );
     return _state.epoch;
   }

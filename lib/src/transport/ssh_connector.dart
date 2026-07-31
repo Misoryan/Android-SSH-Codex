@@ -10,15 +10,11 @@ final class HostKeyChallenge {
     required this.label,
     required this.algorithm,
     required this.fingerprint,
-    this.previousFingerprint,
   });
 
   final String label;
   final String algorithm;
   final String fingerprint;
-  final String? previousFingerprint;
-
-  bool get isMismatch => previousFingerprint != null;
 }
 
 final class HostKeyMismatchException implements Exception {

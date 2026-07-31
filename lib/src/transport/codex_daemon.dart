@@ -18,8 +18,11 @@ is_our_server_running() {
   case "$pid" in
     ''|*[!0-9]*) return 1 ;;
   esac
-  [ -r "/proc/$pid/cmdline" ] || return 1
-  command=$(tr '\000' ' ' < "/proc/$pid/cmdline")
+  if [ -r "/proc/$pid/cmdline" ]; then
+    command=$(tr '\000' ' ' < "/proc/$pid/cmdline")
+  else
+    command=$(ps -p "$pid" -o command= 2>/dev/null || true)
+  fi
   case "$command" in
     *"codex app-server"*"unix://$socket"*) return 0 ;;
     *) return 1 ;;

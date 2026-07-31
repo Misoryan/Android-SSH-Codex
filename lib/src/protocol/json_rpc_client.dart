@@ -48,11 +48,14 @@ final class JsonRpcClient {
   final StreamController<RpcServerRequest> _serverRequests =
       StreamController.broadcast();
   StreamSubscription<String>? _subscription;
+  final Completer<void> _done = Completer<void>();
+  Future<void>? _cleanupFuture;
   var _nextId = 1;
   var _closed = false;
 
   Stream<RpcNotification> get notifications => _notifications.stream;
   Stream<RpcServerRequest> get serverRequests => _serverRequests.stream;
+  Future<void> get done => _done.future;
 
   void start() {
     if (_subscription != null || _closed) return;
@@ -91,13 +94,12 @@ final class JsonRpcClient {
   }
 
   Future<void> close() async {
-    if (_closed) return;
-    _closed = true;
-    await _subscription?.cancel();
-    _failPending(const RpcDisconnectedException('RPC client closed'));
-    await _transport.close();
-    await _notifications.close();
-    await _serverRequests.close();
+    if (!_closed) {
+      _closed = true;
+      _failPending(const RpcDisconnectedException('RPC client closed'));
+      if (!_done.isCompleted) _done.complete();
+    }
+    await _cleanup();
   }
 
   void _send(Map<String, dynamic> message) {
@@ -143,6 +145,18 @@ final class JsonRpcClient {
           ? 'RPC transport disconnected'
           : 'RPC transport failed: $error',
     ));
+    if (!_done.isCompleted) _done.complete();
+    unawaited(_cleanup());
+  }
+
+  Future<void> _cleanup() => _cleanupFuture ??= _performCleanup();
+
+  Future<void> _performCleanup() async {
+    await _subscription?.cancel();
+    _subscription = null;
+    await _transport.close();
+    await _notifications.close();
+    await _serverRequests.close();
   }
 
   void _failPending(Object error) {

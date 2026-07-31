@@ -211,7 +211,9 @@ class _ConnectionAction extends StatelessWidget {
         ? 'Connecting'
         : connected
             ? controller.selectedHost?.label ?? 'Connected'
-            : 'Disconnected';
+            : controller.selectedHost == null
+                ? 'Disconnected'
+                : 'Reconnect ${controller.selectedHost!.label}';
     final icon = busy
         ? const SizedBox.square(
             dimension: 16,
@@ -221,9 +223,16 @@ class _ConnectionAction extends StatelessWidget {
             connected ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
             size: 20,
           );
+    final action = busy
+        ? null
+        : connected
+            ? controller.disconnect
+            : controller.selectedHost == null
+                ? null
+                : () => controller.connectHost(controller.selectedHost!);
     if (expanded) {
       return OutlinedButton.icon(
-        onPressed: connected ? controller.disconnect : null,
+        onPressed: action,
         icon: icon,
         label: Text(label, overflow: TextOverflow.ellipsis),
       );
@@ -231,7 +240,7 @@ class _ConnectionAction extends StatelessWidget {
     return Tooltip(
       message: connected ? 'Disconnect from $label' : label,
       child: IconButton(
-        onPressed: connected ? controller.disconnect : null,
+        onPressed: action,
         icon: icon,
       ),
     );
@@ -278,8 +287,7 @@ class _HostKeyPrompt extends StatelessWidget {
       color: Colors.black54,
       child: Center(
         child: AlertDialog(
-          title: Text(
-              challenge.isMismatch ? 'Host key rejected' : 'Trust this host?'),
+          title: const Text('Trust this host?'),
           content: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 460),
             child: Column(
@@ -294,14 +302,6 @@ class _HostKeyPrompt extends StatelessWidget {
                   challenge.fingerprint,
                   style: const TextStyle(fontFamily: 'monospace'),
                 ),
-                if (challenge.previousFingerprint != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    'Previously: ${challenge.previousFingerprint}',
-                    style:
-                        TextStyle(color: Theme.of(context).colorScheme.error),
-                  ),
-                ],
               ],
             ),
           ),

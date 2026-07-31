@@ -29,6 +29,9 @@ class _ProfileEditorState extends State<ProfileEditor> {
   late final TextEditingController _password;
   late final TextEditingController _privateKey;
   late final TextEditingController _passphrase;
+  late final TextEditingController _jumpPassword;
+  late final TextEditingController _jumpPrivateKey;
+  late final TextEditingController _jumpPassphrase;
   late final TextEditingController _config;
   late final TextEditingController _alias;
   late HostAuthMethod _authMethod;
@@ -46,6 +49,12 @@ class _ProfileEditorState extends State<ProfileEditor> {
     _password = TextEditingController(text: widget.secret.password ?? '');
     _privateKey = TextEditingController(text: widget.secret.privateKey ?? '');
     _passphrase = TextEditingController(text: widget.secret.passphrase ?? '');
+    _jumpPassword =
+        TextEditingController(text: widget.secret.jumpPassword ?? '');
+    _jumpPrivateKey =
+        TextEditingController(text: widget.secret.jumpPrivateKey ?? '');
+    _jumpPassphrase =
+        TextEditingController(text: widget.secret.jumpPassphrase ?? '');
     _config = TextEditingController();
     _alias = TextEditingController(text: profile?.label ?? '');
     _authMethod = profile?.authMethod ?? HostAuthMethod.password;
@@ -62,6 +71,9 @@ class _ProfileEditorState extends State<ProfileEditor> {
       _password,
       _privateKey,
       _passphrase,
+      _jumpPassword,
+      _jumpPrivateKey,
+      _jumpPassphrase,
       _config,
       _alias,
     ]) {
@@ -218,6 +230,31 @@ class _ProfileEditorState extends State<ProfileEditor> {
                         icon: const Icon(Icons.close),
                       ),
                     ),
+                    TextFormField(
+                      controller: _jumpPassword,
+                      obscureText: true,
+                      decoration:
+                          const InputDecoration(labelText: 'Jump password'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _jumpPrivateKey,
+                      minLines: 4,
+                      maxLines: 8,
+                      style: const TextStyle(fontFamily: 'monospace'),
+                      decoration: const InputDecoration(
+                        labelText: 'Jump OpenSSH private key',
+                        alignLabelWithHint: true,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _jumpPassphrase,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Jump key passphrase',
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -260,13 +297,16 @@ class _ProfileEditorState extends State<ProfileEditor> {
   void _save() {
     if (!_formKey.currentState!.validate()) return;
     final label = _label.text.trim();
-    final id = widget.profile?.id ??
+    final safeLabel =
         label.toLowerCase().replaceAll(RegExp('[^a-z0-9._-]+'), '-');
+    final id = widget.profile?.id ??
+        '${safeLabel.isEmpty ? 'host' : safeLabel}-'
+            '${DateTime.now().microsecondsSinceEpoch}';
     Navigator.pop(
       context,
       ProfileDraft(
         HostProfile(
-          id: id.isEmpty ? 'host' : id,
+          id: id,
           label: label,
           hostName: _host.text.trim(),
           user: _user.text.trim(),
@@ -279,9 +319,9 @@ class _ProfileEditorState extends State<ProfileEditor> {
           password: _password.text,
           privateKey: _privateKey.text,
           passphrase: _passphrase.text,
-          jumpPassword: widget.secret.jumpPassword,
-          jumpPrivateKey: widget.secret.jumpPrivateKey,
-          jumpPassphrase: widget.secret.jumpPassphrase,
+          jumpPassword: _jumpPassword.text,
+          jumpPrivateKey: _jumpPrivateKey.text,
+          jumpPassphrase: _jumpPassphrase.text,
         ),
       ),
     );

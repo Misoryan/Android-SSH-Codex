@@ -64,6 +64,8 @@ class _TaskListState extends State<_TaskList> {
             task.cwd.toLowerCase().contains(query))
         .toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final canShowTasks = controller.isConnected ||
+        controller.connectionPhase == RemoteConnectionPhase.reconnecting;
     return Column(
       children: [
         Padding(
@@ -109,7 +111,7 @@ class _TaskListState extends State<_TaskList> {
         ),
         const Divider(height: 1),
         Expanded(
-          child: !controller.isConnected
+          child: !canShowTasks
               ? const _ConnectPrompt()
               : tasks.isEmpty
                   ? const Center(child: Text('No Codex tasks found'))
