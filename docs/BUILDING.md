@@ -30,6 +30,11 @@ profiles belong to the distributor and must not be committed to a public
 repository. Sign the HAP with DevEco Studio or the HarmonyOS signing tools before
 installing it on devices that reject unsigned packages.
 
+Android credentials use `flutter_secure_storage` backed by Android Keystore.
+Application backup is disabled so encrypted preferences cannot be restored onto
+a device without the matching keystore key. OpenHarmony uses its dedicated
+secure-storage implementation.
+
 ## Remote host requirements
 
 - POSIX shell and OpenSSH server with Unix-socket forwarding enabled.
@@ -41,4 +46,3 @@ The app creates only
 `${XDG_CACHE_HOME:-$HOME/.cache}/android-ssh-codex/app-server.sock`. It does not
 inspect, replace, or stop the sockets and processes used by Codex Desktop, the
 CLI, or IDE extensions.
-

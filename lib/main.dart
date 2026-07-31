@@ -6,7 +6,14 @@ import 'src/profiles/profile_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final controller = AppController(store: SecureProfileStore());
+  await bootstrapApplication(SecureProfileStore(), runApp);
+}
+
+Future<void> bootstrapApplication(
+  ProfileStore store,
+  void Function(Widget app) appRunner,
+) async {
+  final controller = AppController(store: store);
+  appRunner(AndroidSshCodexApp(controller: controller));
   await controller.initialize();
-  runApp(AndroidSshCodexApp(controller: controller));
 }

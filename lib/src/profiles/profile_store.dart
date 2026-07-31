@@ -1,8 +1,7 @@
 import 'dart:convert';
 
-import 'package:flutter_secure_storage_ohos/flutter_secure_storage_ohos.dart';
-
 import 'host_profile.dart';
+import 'secure_key_value_store.dart';
 
 abstract interface class ProfileStore {
   Future<List<HostProfile>> readProfiles();
@@ -16,10 +15,10 @@ abstract interface class ProfileStore {
 }
 
 final class SecureProfileStore implements ProfileStore {
-  SecureProfileStore([FlutterSecureStorage? storage])
-      : _storage = storage ?? const FlutterSecureStorage();
+  SecureProfileStore([SecureKeyValueStore? storage])
+      : _storage = storage ?? createSecureKeyValueStore();
 
-  final FlutterSecureStorage _storage;
+  final SecureKeyValueStore _storage;
 
   @override
   Future<List<HostProfile>> readProfiles() async {
