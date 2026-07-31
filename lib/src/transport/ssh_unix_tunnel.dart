@@ -47,11 +47,11 @@ final class SshUnixTunnel {
         cancelOnError: true,
       );
       toLocal = channel.stream.cast<List<int>>().listen(
-        socket.add,
-        onDone: socket.close,
-        onError: (_) => socket.destroy(),
-        cancelOnError: true,
-      );
+            socket.add,
+            onDone: socket.close,
+            onError: (_) => socket.destroy(),
+            cancelOnError: true,
+          );
       await Future.any([
         toRemote.asFuture<void>(),
         toLocal.asFuture<void>(),

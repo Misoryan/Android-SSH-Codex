@@ -81,8 +81,8 @@ class _Workspace extends StatelessWidget {
                     ? null
                     : NavigationBar(
                         selectedIndex: controller.section.index,
-                        onDestinationSelected: (index) => controller
-                            .selectSection(AppSection.values[index]),
+                        onDestinationSelected: (index) =>
+                            controller.selectSection(AppSection.values[index]),
                         destinations: const [
                           NavigationDestination(
                             icon: Icon(Icons.dns_outlined),
@@ -98,7 +98,8 @@ class _Workspace extends StatelessWidget {
                       ),
               ),
               if (controller.error != null)
-                _ErrorBanner(controller: controller, message: controller.error!),
+                _ErrorBanner(
+                    controller: controller, message: controller.error!),
               if (controller.hostKeyChallenge != null)
                 _HostKeyPrompt(controller: controller),
             ],
@@ -132,7 +133,8 @@ class _DesktopNavigation extends StatelessWidget {
                     SizedBox(width: 10),
                     Text(
                       'Remote Codex',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                     ),
                   ],
                 ),
@@ -152,7 +154,8 @@ class _DesktopNavigation extends StatelessWidget {
               const Spacer(),
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: _ConnectionAction(controller: controller, expanded: true),
+                child:
+                    _ConnectionAction(controller: controller, expanded: true),
               ),
             ],
           ),
@@ -195,8 +198,9 @@ class _ConnectionAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final connected = controller.isConnected;
-    final busy = controller.connectionPhase == RemoteConnectionPhase.connecting ||
-        controller.connectionPhase == RemoteConnectionPhase.reconnecting;
+    final busy =
+        controller.connectionPhase == RemoteConnectionPhase.connecting ||
+            controller.connectionPhase == RemoteConnectionPhase.reconnecting;
     final label = busy
         ? 'Connecting'
         : connected
@@ -268,7 +272,8 @@ class _HostKeyPrompt extends StatelessWidget {
       color: Colors.black54,
       child: Center(
         child: AlertDialog(
-          title: Text(challenge.isMismatch ? 'Host key changed' : 'Trust this host?'),
+          title: Text(
+              challenge.isMismatch ? 'Host key changed' : 'Trust this host?'),
           content: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 460),
             child: Column(
@@ -287,7 +292,8 @@ class _HostKeyPrompt extends StatelessWidget {
                   const SizedBox(height: 12),
                   Text(
                     'Previously: ${challenge.previousFingerprint}',
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
                   ),
                 ],
               ],

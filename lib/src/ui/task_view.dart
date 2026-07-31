@@ -36,7 +36,7 @@ class _TaskViewState extends State<TaskView> {
         _TaskHeader(controller: widget.controller, task: task),
         const Divider(height: 1),
         if (task.ownership == TaskOwnership.external)
-          MaterialBanner(
+          const MaterialBanner(
             leading: const Icon(Icons.lock_outline),
             content: const Text(
               'Running in another Codex client. Updates are visible here; controls remain read-only.',
@@ -189,7 +189,8 @@ class _ApprovalBar extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(approval.title, style: Theme.of(context).textTheme.titleSmall),
+              Text(approval.title,
+                  style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: 4),
               Text(
                 approval.detail,

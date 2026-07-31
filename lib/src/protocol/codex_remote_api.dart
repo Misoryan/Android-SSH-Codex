@@ -130,7 +130,10 @@ final class CodexRemoteApi {
           thread['name'],
           thread['title'],
           thread['preview'],
-          items.where((item) => item.kind == TaskItemKind.user).firstOrNull?.text,
+          items
+              .where((item) => item.kind == TaskItemKind.user)
+              .firstOrNull
+              ?.text,
         ) ??
         'Task ${id.length > 8 ? id.substring(0, 8) : id}';
     return TaskSnapshot(
@@ -161,7 +164,8 @@ final class CodexRemoteApi {
         return TaskEvent.statusChanged(threadId, status);
       case 'item/agentMessage/delta':
         final itemId = params['itemId'] as String? ?? 'agent-message';
-        final sequence = params['sequence'] ?? params['deltaIndex'] ??
+        final sequence = params['sequence'] ??
+            params['deltaIndex'] ??
             '${params['delta']}'.hashCode;
         return TaskEvent.agentDelta(
           threadId,
@@ -183,7 +187,8 @@ final class CodexRemoteApi {
     final command = params['command'];
     final detail = command is List
         ? command.join(' ')
-        : _firstText(command, params['reason'], params['cwd']) ?? request.method;
+        : _firstText(command, params['reason'], params['cwd']) ??
+            request.method;
     final decisions = (params['availableDecisions'] as List<dynamic>?)
             ?.whereType<String>()
             .toList(growable: false) ??
@@ -244,9 +249,17 @@ String _extractText(Map<String, dynamic> item) {
 TaskStatus _parseStatus(Object? raw) {
   final value = raw is Map ? raw['type'] ?? raw['status'] : raw;
   return switch (value?.toString().toLowerCase()) {
-    'active' || 'running' || 'inprogress' || 'in_progress' => TaskStatus.running,
+    'active' ||
+    'running' ||
+    'inprogress' ||
+    'in_progress' =>
+      TaskStatus.running,
     'queued' || 'pending' => TaskStatus.queued,
-    'completed' || 'complete' || 'idle' || 'notloaded' || 'not_loaded' =>
+    'completed' ||
+    'complete' ||
+    'idle' ||
+    'notloaded' ||
+    'not_loaded' =>
       TaskStatus.completed,
     'failed' || 'error' || 'systemerror' => TaskStatus.failed,
     'interrupted' || 'cancelled' || 'canceled' => TaskStatus.interrupted,
@@ -259,16 +272,20 @@ DateTime _parseTime(Object? raw) {
     final milliseconds = raw > 1000000000000 ? raw.toInt() : raw.toInt() * 1000;
     return DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true);
   }
-  if (raw is String) return DateTime.tryParse(raw)?.toUtc() ?? DateTime.now().toUtc();
+  if (raw is String) {
+    return DateTime.tryParse(raw)?.toUtc() ?? DateTime.now().toUtc();
+  }
   return DateTime.now().toUtc();
 }
 
-String? _firstText(Object? first, [
+String? _firstText(
+  Object? first, [
   Object? second,
   Object? third,
   Object? fourth,
+  Object? fifth,
 ]) {
-  for (final value in [first, second, third, fourth]) {
+  for (final value in [first, second, third, fourth, fifth]) {
     if (value is String && value.trim().isNotEmpty) return value.trim();
     if (value is List && value.isNotEmpty) return value.join(' ');
   }

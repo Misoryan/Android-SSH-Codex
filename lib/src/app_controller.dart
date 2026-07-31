@@ -30,8 +30,7 @@ final class AppController extends ChangeNotifier {
 
   List<HostProfile> _profiles = const [];
   AppSection _section = AppSection.hosts;
-  RemoteConnectionPhase _connectionPhase =
-      RemoteConnectionPhase.disconnected;
+  RemoteConnectionPhase _connectionPhase = RemoteConnectionPhase.disconnected;
   String? _selectedHostId;
   String? _selectedTaskId;
   String? _activeTurnId;
@@ -62,16 +61,14 @@ final class AppController extends ChangeNotifier {
   List<PendingApproval> get approvals => _approvals;
   TaskState get taskState => _taskReducer.state;
 
-  HostProfile? get selectedHost => _profiles
-      .where((profile) => profile.id == _selectedHostId)
-      .firstOrNull;
+  HostProfile? get selectedHost =>
+      _profiles.where((profile) => profile.id == _selectedHostId).firstOrNull;
 
   TaskRecord? get selectedTask => _selectedTaskId == null
       ? null
       : _taskReducer.state.tasks[_selectedTaskId];
 
-  bool get isConnected =>
-      _connectionPhase == RemoteConnectionPhase.connected;
+  bool get isConnected => _connectionPhase == RemoteConnectionPhase.connected;
 
   Future<void> initialize() async {
     _profiles = await _store.readProfiles();
@@ -134,7 +131,8 @@ final class AppController extends ChangeNotifier {
       );
       _rpc = JsonRpcClient(transport)..start();
       _api = CodexRemoteApi(_rpc!);
-      _notificationSubscription = _api!.notifications.listen(_handleNotification);
+      _notificationSubscription =
+          _api!.notifications.listen(_handleNotification);
       _requestSubscription = _api!.serverRequests.listen(_handleServerRequest);
       await _api!.initialize();
       _epoch = _taskReducer.beginConnection();
@@ -165,7 +163,9 @@ final class AppController extends ChangeNotifier {
     final completer = _hostKeyCompleter;
     _hostKeyCompleter = null;
     _hostKeyChallenge = null;
-    if (completer != null && !completer.isCompleted) completer.complete(accepted);
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(accepted);
+    }
     notifyListeners();
   }
 
@@ -182,7 +182,8 @@ final class AppController extends ChangeNotifier {
         final token = _taskReducer.beginRefresh(_epoch);
         final batch = await _api!.readTaskBatch();
         _loadedThreadIds = batch.loadedThreadIds;
-        final ownedAndLoaded = batch.loadedThreadIds.intersection(_ownedThreadIds);
+        final ownedAndLoaded =
+            batch.loadedThreadIds.intersection(_ownedThreadIds);
         _taskReducer.applyRefresh(token, batch.tasks, ownedAndLoaded);
         notifyListeners();
       } while (_refreshQueued && isConnected);
@@ -204,8 +205,7 @@ final class AppController extends ChangeNotifier {
       final snapshots = _taskReducer.state.tasks.values
           .map(_snapshotFromRecord)
           .where((task) => task.id != taskId)
-          .followedBy([detail])
-          .toList(growable: false);
+          .followedBy([detail]).toList(growable: false);
       final token = _taskReducer.beginRefresh(_epoch);
       _taskReducer.applyRefresh(
         token,
@@ -224,7 +224,8 @@ final class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> startNewTask({required String cwd, required String prompt}) async {
+  Future<void> startNewTask(
+      {required String cwd, required String prompt}) async {
     final api = _requireApi();
     final threadId = await api.startThread(cwd: cwd);
     await _claimThread(threadId);
@@ -366,7 +367,8 @@ TaskSnapshot _snapshotFromRecord(TaskRecord record) => TaskSnapshot(
 String _friendlyError(Object exception) {
   if (exception is RpcRemoteException) return exception.message;
   final text = exception.toString();
-  return text.replaceFirst(RegExp(r'^(Exception|StateError|ArgumentError):\s*'), '');
+  return text.replaceFirst(
+      RegExp(r'^(Exception|StateError|ArgumentError):\s*'), '');
 }
 
 extension<T> on Iterable<T> {

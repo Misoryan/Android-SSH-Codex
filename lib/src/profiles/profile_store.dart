@@ -27,7 +27,8 @@ final class SecureProfileStore implements ProfileStore {
     if (value == null || value.isEmpty) return [];
     final decoded = jsonDecode(value) as List<dynamic>;
     return decoded
-        .map((item) => HostProfile.fromJson((item as Map).cast<String, dynamic>()))
+        .map((item) =>
+            HostProfile.fromJson((item as Map).cast<String, dynamic>()))
         .toList(growable: false);
   }
 
@@ -96,7 +97,8 @@ final class SecureProfileStore implements ProfileStore {
     String profileId,
     Set<String> threadIds,
   ) =>
-      _storage.write(key: 'owned.$profileId', value: jsonEncode(threadIds.toList()));
+      _storage.write(
+          key: 'owned.$profileId', value: jsonEncode(threadIds.toList()));
 }
 
 final class MemoryProfileStore implements ProfileStore {

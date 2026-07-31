@@ -29,7 +29,8 @@ void main() {
     ]);
   });
 
-  test('preserves unknown items as visible activity instead of dropping them', () {
+  test('preserves unknown items as visible activity instead of dropping them',
+      () {
     final snapshot = CodexRemoteApi.parseThread({
       'id': 'thr_2',
       'status': {'type': 'idle'},
@@ -65,4 +66,3 @@ void main() {
     expect(reducer.state.tasks['thr_1']?.items.single.text, 'hello');
   });
 }
-

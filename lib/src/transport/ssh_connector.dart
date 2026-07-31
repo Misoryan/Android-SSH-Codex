@@ -71,7 +71,8 @@ final class SshConnector {
         prompt: prompt,
       );
       await jumpClient.authenticated;
-      targetSocket = await jumpClient.forwardLocal(profile.hostName, profile.port);
+      targetSocket =
+          await jumpClient.forwardLocal(profile.hostName, profile.port);
     }
 
     final client = _client(
@@ -114,7 +115,8 @@ final class SshConnector {
       socket,
       username: user,
       identities: identities,
-      onPasswordRequest: password == null || password.isEmpty ? null : () => password,
+      onPasswordRequest:
+          password == null || password.isEmpty ? null : () => password,
       onVerifyHostKey: (algorithm, fingerprintBytes) async {
         final fingerprint = String.fromCharCodes(fingerprintBytes);
         final previous = await _store.readHostFingerprint(profileId);

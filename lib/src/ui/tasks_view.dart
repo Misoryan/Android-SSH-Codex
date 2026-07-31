@@ -74,7 +74,8 @@ class _TaskListState extends State<_TaskList> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Tasks', style: Theme.of(context).textTheme.titleLarge),
+                    Text('Tasks',
+                        style: Theme.of(context).textTheme.titleLarge),
                     const SizedBox(height: 3),
                     ConnectionBadge(phase: controller.connectionPhase),
                   ],
@@ -82,12 +83,14 @@ class _TaskListState extends State<_TaskList> {
               ),
               IconButton(
                 tooltip: 'Refresh tasks',
-                onPressed: controller.isConnected ? controller.refreshTasks : null,
+                onPressed:
+                    controller.isConnected ? controller.refreshTasks : null,
                 icon: const Icon(Icons.refresh),
               ),
               IconButton.filled(
                 tooltip: 'New task',
-                onPressed: controller.isConnected ? () => _newTask(context) : null,
+                onPressed:
+                    controller.isConnected ? () => _newTask(context) : null,
                 icon: const Icon(Icons.add),
               ),
             ],
@@ -116,7 +119,8 @@ class _TaskListState extends State<_TaskList> {
                         itemCount: tasks.length,
                         itemBuilder: (_, index) => _TaskRow(
                           task: tasks[index],
-                          selected: controller.selectedTaskId == tasks[index].id,
+                          selected:
+                              controller.selectedTaskId == tasks[index].id,
                           onTap: () => controller.selectTask(tasks[index].id),
                         ),
                       ),
@@ -172,7 +176,9 @@ class _TaskListState extends State<_TaskList> {
         ],
       ),
     );
-    if (accepted == true && cwd.text.trim().isNotEmpty && prompt.text.trim().isNotEmpty) {
+    if (accepted == true &&
+        cwd.text.trim().isNotEmpty &&
+        prompt.text.trim().isNotEmpty) {
       await widget.controller.startNewTask(
         cwd: cwd.text.trim(),
         prompt: prompt.text.trim(),
@@ -207,7 +213,8 @@ class _TaskRow extends StatelessWidget {
             if (task.ownership == TaskOwnership.external)
               Text(
                 'Running in another client',
-                style: TextStyle(color: Theme.of(context).colorScheme.secondary),
+                style:
+                    TextStyle(color: Theme.of(context).colorScheme.secondary),
               ),
           ],
         ),

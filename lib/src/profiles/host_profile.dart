@@ -10,7 +10,8 @@ final class JumpHostProfile {
     this.identityFileHint,
   });
 
-  factory JumpHostProfile.fromJson(Map<String, dynamic> json) => JumpHostProfile(
+  factory JumpHostProfile.fromJson(Map<String, dynamic> json) =>
+      JumpHostProfile(
         hostName: json['hostName'] as String,
         user: json['user'] as String,
         port: json['port'] as int? ?? 22,

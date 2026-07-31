@@ -101,7 +101,8 @@ class _ProfileEditorState extends State<ProfileEditor> {
                           Expanded(
                             child: TextFormField(
                               controller: _alias,
-                              decoration: const InputDecoration(labelText: 'Host alias'),
+                              decoration: const InputDecoration(
+                                  labelText: 'Host alias'),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -117,7 +118,8 @@ class _ProfileEditorState extends State<ProfileEditor> {
                           padding: const EdgeInsets.only(top: 8),
                           child: Text(
                             _importError!,
-                            style: TextStyle(color: Theme.of(context).colorScheme.error),
+                            style: TextStyle(
+                                color: Theme.of(context).colorScheme.error),
                           ),
                         ),
                       const SizedBox(height: 12),
@@ -132,7 +134,8 @@ class _ProfileEditorState extends State<ProfileEditor> {
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: _host,
-                    decoration: const InputDecoration(labelText: 'Host name or IP'),
+                    decoration:
+                        const InputDecoration(labelText: 'Host name or IP'),
                     validator: _required,
                   ),
                   const SizedBox(height: 10),
@@ -197,7 +200,8 @@ class _ProfileEditorState extends State<ProfileEditor> {
                     TextFormField(
                       controller: _passphrase,
                       obscureText: true,
-                      decoration: const InputDecoration(labelText: 'Key passphrase'),
+                      decoration:
+                          const InputDecoration(labelText: 'Key passphrase'),
                     ),
                   ],
                   if (_jump != null) ...[
@@ -206,7 +210,8 @@ class _ProfileEditorState extends State<ProfileEditor> {
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.alt_route),
                       title: const Text('ProxyJump'),
-                      subtitle: Text('${_jump!.user}@${_jump!.hostName}:${_jump!.port}'),
+                      subtitle: Text(
+                          '${_jump!.user}@${_jump!.hostName}:${_jump!.port}'),
                       trailing: IconButton(
                         tooltip: 'Remove jump host',
                         onPressed: () => setState(() => _jump = null),
@@ -234,7 +239,8 @@ class _ProfileEditorState extends State<ProfileEditor> {
 
   void _import() {
     try {
-      final resolved = SshConfig.parse(_config.text).resolve(_alias.text.trim());
+      final resolved =
+          SshConfig.parse(_config.text).resolve(_alias.text.trim());
       final imported = HostProfile.fromResolved(resolved);
       setState(() {
         _label.text = imported.label;
@@ -243,7 +249,8 @@ class _ProfileEditorState extends State<ProfileEditor> {
         _port.text = '${imported.port}';
         _authMethod = imported.authMethod;
         _jump = imported.proxyJump;
-        _importError = resolved.warnings.isEmpty ? null : resolved.warnings.join('\n');
+        _importError =
+            resolved.warnings.isEmpty ? null : resolved.warnings.join('\n');
       });
     } catch (error) {
       setState(() => _importError = error.toString());

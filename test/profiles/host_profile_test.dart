@@ -57,4 +57,3 @@ Host work
     expect(profile.toJson().keys, isNot(contains('privateKey')));
   });
 }
-

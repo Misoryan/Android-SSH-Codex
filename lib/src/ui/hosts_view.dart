@@ -40,7 +40,8 @@ class HostsView extends StatelessWidget {
                         ? const _EmptyHosts()
                         : ListView.separated(
                             itemCount: controller.profiles.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
                             itemBuilder: (context, index) => _HostRow(
                               profile: controller.profiles[index],
                               selected: controller.selectedHostId ==
@@ -68,8 +69,9 @@ class HostsView extends StatelessWidget {
       );
 
   Future<void> _edit(BuildContext context, [HostProfile? profile]) async {
-    final secret =
-        profile == null ? const HostSecret() : await controller.readSecret(profile.id);
+    final secret = profile == null
+        ? const HostSecret()
+        : await controller.readSecret(profile.id);
     if (!context.mounted) return;
     final draft = await showDialog<ProfileDraft>(
       context: context,
@@ -150,10 +152,14 @@ class _HostRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Card(
         color: selected
-            ? Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.45)
+            ? Theme.of(context)
+                .colorScheme
+                .secondaryContainer
+                .withValues(alpha: 0.45)
             : null,
         child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           leading: CircleAvatar(
             child: Text(profile.label.characters.first.toUpperCase()),
           ),
