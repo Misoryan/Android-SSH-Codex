@@ -32,6 +32,16 @@ void main() {
     expect(reducer.state.tasks, isEmpty);
   });
 
+  test('a new connection does not retain tasks from the previous host', () {
+    final firstEpoch = reducer.beginConnection();
+    final firstRefresh = reducer.beginRefresh(firstEpoch);
+    reducer.applyRefresh(firstRefresh, [snapshot('host-a-task')], const {});
+
+    reducer.beginConnection();
+
+    expect(reducer.state.tasks, isEmpty);
+  });
+
   test('discards an older overlapping refresh generation', () {
     final epoch = reducer.beginConnection();
     final older = reducer.beginRefresh(epoch);
@@ -57,6 +67,21 @@ void main() {
     );
 
     expect(reducer.state.tasks['one']?.status, TaskStatus.running);
+  });
+
+  test('list snapshots with empty turns preserve cached task detail', () {
+    final epoch = reducer.beginConnection();
+    final detail = reducer.beginRefresh(epoch);
+    reducer.applyRefresh(
+      detail,
+      [snapshot('one', text: 'Full history')],
+      const {},
+    );
+
+    final listRefresh = reducer.beginRefresh(epoch);
+    reducer.applyRefresh(listRefresh, [snapshot('one')], const {});
+
+    expect(reducer.state.tasks['one']?.items.single.text, 'Full history');
   });
 
   test('marks an active task loaded elsewhere as read-only', () {

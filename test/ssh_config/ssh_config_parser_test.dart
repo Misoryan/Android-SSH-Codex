@@ -93,5 +93,24 @@ Host hash
 
       expect(config.resolve('hash').hostName, 'box#1.example');
     });
+
+    test('does not leak directives from unsupported Match blocks', () {
+      final config = SshConfig.parse('''
+Host work
+  HostName work.example
+  User coder
+Match host work exec "test -f /tmp/admin"
+  User root
+  ProxyJump privileged
+Host other
+  HostName other.example
+''');
+
+      final work = config.resolve('work');
+
+      expect(work.user, 'coder');
+      expect(work.proxyJump, isNull);
+      expect(work.warnings, contains(contains('Match')));
+    });
   });
 }

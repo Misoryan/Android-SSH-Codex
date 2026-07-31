@@ -65,4 +65,26 @@ void main() {
 
     expect(reducer.state.tasks['thr_1']?.items.single.text, 'hello');
   });
+
+  test('appends repeated identical deltas when the protocol has no sequence',
+      () {
+    final reducer = TaskReducer();
+    final epoch = reducer.beginConnection();
+    for (var index = 0; index < 2; index++) {
+      reducer.applyEvent(
+        epoch,
+        CodexRemoteApi.parseNotification(
+          'item/agentMessage/delta',
+          const {
+            'threadId': 'thr_1',
+            'turnId': 'turn_1',
+            'itemId': 'a1',
+            'delta': ' ',
+          },
+        )!,
+      );
+    }
+
+    expect(reducer.state.tasks['thr_1']?.items.single.text, '  ');
+  });
 }

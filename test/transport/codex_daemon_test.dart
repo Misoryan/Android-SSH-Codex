@@ -20,4 +20,13 @@ void main() {
     expect(script, contains(r'rm -f "$socket" "$pidfile"'));
     expect(script, isNot(contains('rm -rf')));
   });
+
+  test('bootstrap validates its recorded process before reusing a socket', () {
+    const script = CodexDaemon.bootstrapScript;
+
+    expect(script, contains(r'pid=$(cat "$pidfile"'));
+    expect(script, contains(r'/proc/$pid/cmdline'));
+    expect(script, contains('codex app-server'));
+    expect(script, contains(r'rm -f "$socket" "$pidfile"'));
+  });
 }
