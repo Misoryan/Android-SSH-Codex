@@ -16,9 +16,9 @@
 - Modify: `test/profiles/host_profile_test.dart`
 - Modify: `lib/src/app_controller.dart`
 
-- [ ] Add a `ProfileStore` test double whose `readProfiles` throws and assert that `AppController.initialize` completes with no profiles and a visible storage error.
-- [ ] Push the test-only commit and confirm GitHub CI fails because the exception currently escapes.
-- [ ] Catch the initialization error in `AppController.initialize`, retain an empty profile list, set the error message, and notify listeners.
+- [x] Add a `ProfileStore` test double whose `readProfiles` throws and assert that `AppController.initialize` completes with no profiles and a visible storage error.
+- [x] Push the test-only commit and confirm GitHub CI fails because the exception currently escapes.
+- [x] Catch the initialization error in `AppController.initialize`, retain an empty profile list, set the error message, and notify listeners.
 
 ### Task 2: Add platform-correct secure storage
 
@@ -29,12 +29,12 @@
 - Modify: `pubspec.lock`
 - Modify: `tool/prepare_android.sh`
 
-- [ ] Define `SecureKeyValueStore` with `read`, `write`, and `delete` operations.
-- [ ] Implement an Android adapter with `flutter_secure_storage` and an OHOS adapter with `flutter_secure_storage_ohos`.
-- [ ] Select the adapter from `Platform.operatingSystem`; reject unsupported targets explicitly.
-- [ ] Change `SecureProfileStore` to depend on the interface.
-- [ ] Pin `flutter_secure_storage` to 9.2.4 so its platform-interface dependency remains compatible with the OHOS fork.
-- [ ] Disable Android application backup in the generated manifest.
+- [x] Define `SecureKeyValueStore` with `read`, `write`, and `delete` operations.
+- [x] Implement an Android adapter with `flutter_secure_storage` and an OHOS adapter with `flutter_secure_storage_ohos`.
+- [x] Select the adapter from `Platform.operatingSystem`; reject unsupported targets explicitly.
+- [x] Change `SecureProfileStore` to depend on the interface.
+- [x] Pin `flutter_secure_storage` to 9.2.4 so its platform-interface dependency remains compatible with the OHOS fork.
+- [x] Disable Android application backup in the generated manifest.
 
 ### Task 3: Verify and release
 
@@ -42,5 +42,5 @@
 - Modify: `docs/BUILDING.md`
 - Modify: `.github/workflows/build.yml` only if verification reveals a workflow defect.
 
-- [ ] Push the implementation and confirm formatting, analysis, tests, Android APK/AAB build, and OpenHarmony HAP build pass in GitHub Actions.
+- [x] Push the implementation and confirm formatting, analysis, tests, Android APK/AAB build, and OpenHarmony HAP build pass in GitHub Actions.
 - [ ] Merge the fix, tag the next patch release, and confirm the release contains fresh Android APKs and checksums.
