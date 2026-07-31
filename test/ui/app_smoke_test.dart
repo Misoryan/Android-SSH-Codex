@@ -1,5 +1,6 @@
 import 'package:android_ssh_codex/src/app.dart';
 import 'package:android_ssh_codex/src/app_controller.dart';
+import 'package:flutter/material.dart' show Size;
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
