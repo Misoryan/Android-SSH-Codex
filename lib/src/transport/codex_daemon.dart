@@ -33,7 +33,6 @@ if [ -S "$socket" ] && is_our_server_running; then
   printf '%s\n' "$socket"
   exit 0
 fi
-rm -f "$socket" "$pidfile"
 
 count=0
 while ! mkdir "$lock" 2>/dev/null; do
@@ -54,6 +53,10 @@ while ! mkdir "$lock" 2>/dev/null; do
   sleep 0.1
 done
 trap 'rmdir "$lock" 2>/dev/null || true' EXIT HUP INT TERM
+if [ -S "$socket" ] && is_our_server_running; then
+  printf '%s\n' "$socket"
+  exit 0
+fi
 rm -f "$socket" "$pidfile"
 nohup codex app-server --listen "unix://$socket" </dev/null >>"$log" 2>&1 &
 printf '%s\n' "$!" >"$pidfile"

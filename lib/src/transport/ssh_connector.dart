@@ -31,7 +31,7 @@ final class HostKeyMismatchException implements Exception {
 }
 
 String formatHostKeyFingerprint(List<int> bytes) =>
-    'SHA256:${base64Encode(bytes)}';
+    'SHA256:${base64Encode(bytes).replaceFirst(RegExp(r'=+$'), '')}';
 
 typedef HostKeyPrompt = Future<bool> Function(HostKeyChallenge challenge);
 
@@ -60,51 +60,55 @@ final class SshConnector {
     required HostKeyPrompt prompt,
   }) async {
     SSHClient? jumpClient;
-    SSHSocket targetSocket;
-    final jump = profile.proxyJump;
-    if (jump == null) {
-      targetSocket = await SSHSocket.connect(
-        profile.hostName,
-        profile.port,
-        timeout: const Duration(seconds: 15),
-      );
-    } else {
-      final jumpSocket = await SSHSocket.connect(
-        jump.hostName,
-        jump.port,
-        timeout: const Duration(seconds: 15),
-      );
-      jumpClient = _client(
-        socket: jumpSocket,
-        profileId: '${profile.id}.jump',
-        label: '${profile.label} jump host',
-        user: jump.user,
-        password: secret.jumpPassword ?? secret.password,
-        privateKey: secret.jumpPrivateKey ?? secret.privateKey,
-        passphrase: secret.jumpPassphrase ?? secret.passphrase,
+    SSHClient? targetClient;
+    SSHSocket? unownedSocket;
+    try {
+      final jump = profile.proxyJump;
+      if (jump == null) {
+        unownedSocket = await SSHSocket.connect(
+          profile.hostName,
+          profile.port,
+          timeout: const Duration(seconds: 15),
+        );
+      } else {
+        unownedSocket = await SSHSocket.connect(
+          jump.hostName,
+          jump.port,
+          timeout: const Duration(seconds: 15),
+        );
+        jumpClient = _client(
+          socket: unownedSocket,
+          profileId: '${profile.id}.jump',
+          label: '${profile.label} jump host',
+          user: jump.user,
+          password: secret.jumpPassword,
+          privateKey: secret.jumpPrivateKey,
+          passphrase: secret.jumpPassphrase,
+          prompt: prompt,
+        );
+        unownedSocket = null;
+        await jumpClient.authenticated;
+        unownedSocket =
+            await jumpClient.forwardLocal(profile.hostName, profile.port);
+      }
+
+      targetClient = _client(
+        socket: unownedSocket,
+        profileId: profile.id,
+        label: profile.label,
+        user: profile.user,
+        password: secret.password,
+        privateKey: secret.privateKey,
+        passphrase: secret.passphrase,
         prompt: prompt,
       );
-      await jumpClient.authenticated;
-      targetSocket =
-          await jumpClient.forwardLocal(profile.hostName, profile.port);
-    }
-
-    final client = _client(
-      socket: targetSocket,
-      profileId: profile.id,
-      label: profile.label,
-      user: profile.user,
-      password: secret.password,
-      privateKey: secret.privateKey,
-      passphrase: secret.passphrase,
-      prompt: prompt,
-    );
-    try {
-      await client.authenticated;
-      return SshConnection(client: client, jumpClient: jumpClient);
+      unownedSocket = null;
+      await targetClient.authenticated;
+      return SshConnection(client: targetClient, jumpClient: jumpClient);
     } catch (_) {
-      client.close();
-      jumpClient?.close();
+      unownedSocket?.destroy();
+      await _closeClient(targetClient);
+      await _closeClient(jumpClient);
       rethrow;
     }
   }
@@ -154,4 +158,10 @@ final class SshConnector {
       ident: 'AndroidSSHCodex_0.1',
     );
   }
+}
+
+Future<void> _closeClient(SSHClient? client) async {
+  if (client == null) return;
+  client.close();
+  await client.done.catchError((_) {});
 }

@@ -102,6 +102,7 @@ final class AppController extends ChangeNotifier {
 
   Future<void> connectHost(HostProfile profile) async {
     final attempt = ++_connectionAttempt;
+    _cancelHostKeyPrompt();
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnectAttempt = 0;
@@ -260,6 +261,13 @@ final class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _cancelHostKeyPrompt() {
+    final completer = _hostKeyCompleter;
+    _hostKeyCompleter = null;
+    _hostKeyChallenge = null;
+    if (completer != null && !completer.isCompleted) completer.complete(false);
+  }
+
   Future<void> refreshTasks({bool throwOnError = false}) async {
     final api = _api;
     final epoch = _epoch;
@@ -326,8 +334,20 @@ final class AppController extends ChangeNotifier {
   Future<void> startNewTask(
       {required String cwd, required String prompt}) async {
     final api = _requireApi();
+    final attempt = _connectionAttempt;
+    final epoch = _epoch;
+    final profileId = _selectedHostId!;
     final threadId = await api.startThread(cwd: cwd);
-    await _claimThread(threadId);
+    if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
+    if (!await _claimThread(
+      threadId,
+      api: api,
+      attempt: attempt,
+      epoch: epoch,
+      profileId: profileId,
+    )) {
+      return;
+    }
     _loadedThreadIds = {..._loadedThreadIds, threadId};
     _selectedTaskId = threadId;
     _taskReducer.applyEvent(
@@ -336,11 +356,15 @@ final class AppController extends ChangeNotifier {
     );
     notifyListeners();
     await api.startTurn(threadId, prompt);
+    if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
     await refreshTasks();
   }
 
   Future<void> sendPrompt(String prompt) async {
     final api = _requireApi();
+    final attempt = _connectionAttempt;
+    final epoch = _epoch;
+    final profileId = _selectedHostId!;
     final task = selectedTask;
     if (task == null) throw StateError('Select or create a task first.');
     if (!task.canWrite) {
@@ -349,10 +373,20 @@ final class AppController extends ChangeNotifier {
     if (!_ownedThreadIds.contains(task.id) ||
         !_loadedThreadIds.contains(task.id)) {
       await api.resumeThread(task.id);
-      await _claimThread(task.id);
+      if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
+      if (!await _claimThread(
+        task.id,
+        api: api,
+        attempt: attempt,
+        epoch: epoch,
+        profileId: profileId,
+      )) {
+        return;
+      }
       _loadedThreadIds = {..._loadedThreadIds, task.id};
     }
     await api.startTurn(task.id, prompt);
+    if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
     _taskReducer.applyEvent(
       _epoch,
       TaskEvent.statusChanged(task.id, TaskStatus.running),
@@ -368,20 +402,42 @@ final class AppController extends ChangeNotifier {
   }
 
   void answerApproval(PendingApproval approval, String decision) {
-    _api?.answerApproval(approval.requestId, decision);
+    if (!isConnected ||
+        !_approvals.any((pending) => identical(pending, approval))) {
+      return;
+    }
+    _api!.answerApproval(approval.requestId, decision);
     _approvals = _approvals
         .where((item) => item.requestId != approval.requestId)
         .toList(growable: false);
     notifyListeners();
   }
 
-  Future<void> _claimThread(String threadId) async {
-    _ownedThreadIds = {..._ownedThreadIds, threadId};
-    final hostId = _selectedHostId;
-    if (hostId != null) {
-      await _store.writeOwnedThreads(hostId, _ownedThreadIds);
-    }
+  Future<bool> _claimThread(
+    String threadId, {
+    required CodexRemoteApi api,
+    required int attempt,
+    required int epoch,
+    required String profileId,
+  }) async {
+    if (!_isCurrentSession(api, attempt, epoch, profileId)) return false;
+    final owned = {..._ownedThreadIds, threadId};
+    await _store.writeOwnedThreads(profileId, owned);
+    if (!_isCurrentSession(api, attempt, epoch, profileId)) return false;
+    _ownedThreadIds = owned;
+    return true;
   }
+
+  bool _isCurrentSession(
+    CodexRemoteApi api,
+    int attempt,
+    int epoch,
+    String profileId,
+  ) =>
+      identical(api, _api) &&
+      attempt == _connectionAttempt &&
+      epoch == _epoch &&
+      profileId == _selectedHostId;
 
   void _handleNotification(int attempt, RpcNotification notification) {
     if (attempt != _connectionAttempt) return;
@@ -428,6 +484,7 @@ final class AppController extends ChangeNotifier {
 
   Future<void> disconnect() async {
     _connectionAttempt++;
+    _cancelHostKeyPrompt();
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _connectionPhase = RemoteConnectionPhase.disconnected;
@@ -437,9 +494,6 @@ final class AppController extends ChangeNotifier {
     _ownedThreadIds = {};
     _epoch = _taskReducer.beginConnection();
     _approvals = const [];
-    _hostKeyCompleter?.complete(false);
-    _hostKeyCompleter = null;
-    _hostKeyChallenge = null;
     await _closeTransport();
     notifyListeners();
   }
@@ -447,6 +501,7 @@ final class AppController extends ChangeNotifier {
   Future<void> _closeTransport() async {
     _refreshTimer?.cancel();
     _refreshTimer = null;
+    _approvals = const [];
     final notificationSubscription = _notificationSubscription;
     final requestSubscription = _requestSubscription;
     final rpc = _rpc;

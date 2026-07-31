@@ -58,6 +58,7 @@ class _TaskViewState extends State<TaskView> {
         for (final approval in approvals)
           _ApprovalBar(
             approval: approval,
+            enabled: widget.controller.isConnected,
             onDecision: (decision) =>
                 widget.controller.answerApproval(approval, decision),
           ),
@@ -176,9 +177,14 @@ class _Composer extends StatelessWidget {
 }
 
 class _ApprovalBar extends StatelessWidget {
-  const _ApprovalBar({required this.approval, required this.onDecision});
+  const _ApprovalBar({
+    required this.approval,
+    required this.enabled,
+    required this.onDecision,
+  });
 
   final PendingApproval approval;
+  final bool enabled;
   final ValueChanged<String> onDecision;
 
   @override
@@ -204,16 +210,17 @@ class _ApprovalBar extends StatelessWidget {
                 spacing: 8,
                 children: [
                   OutlinedButton(
-                    onPressed: () => onDecision('decline'),
+                    onPressed: enabled ? () => onDecision('decline') : null,
                     child: const Text('Deny'),
                   ),
                   FilledButton(
-                    onPressed: () => onDecision('accept'),
+                    onPressed: enabled ? () => onDecision('accept') : null,
                     child: const Text('Allow once'),
                   ),
                   if (approval.availableDecisions.contains('acceptForSession'))
                     FilledButton.tonal(
-                      onPressed: () => onDecision('acceptForSession'),
+                      onPressed:
+                          enabled ? () => onDecision('acceptForSession') : null,
                       child: const Text('Allow for session'),
                     ),
                 ],
