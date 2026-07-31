@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('ProxyJump profiles expose independent credentials', (tester) async {
+  testWidgets('ProxyJump profiles expose independent credentials', (
+    tester,
+  ) async {
     const profile = HostProfile(
       id: 'private',
       label: 'Private host',
