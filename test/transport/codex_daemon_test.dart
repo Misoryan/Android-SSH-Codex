@@ -41,4 +41,14 @@ void main() {
     expect(lockAcquisition, greaterThanOrEqualTo(0));
     expect(firstCleanup, greaterThan(lockAcquisition));
   });
+
+  test('bootstrap never cleans up a live daemon with a missing socket', () {
+    const script = CodexDaemon.bootstrapScript;
+
+    final liveFailure = script.indexOf('App-server process is alive');
+    final cleanup = script.indexOf(r'rm -f "$socket" "$pidfile"');
+
+    expect(liveFailure, greaterThanOrEqualTo(0));
+    expect(cleanup, greaterThan(liveFailure));
+  });
 }
