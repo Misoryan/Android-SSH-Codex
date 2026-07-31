@@ -3,7 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('formats host keys as standard SHA256 base64 fingerprints', () {
-    expect(formatHostKeyFingerprint([0, 1, 2]), 'SHA256:AAEC');
+    expect(
+      formatHostKeyFingerprint(List.filled(32, 0)),
+      'SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    );
   });
 
   test('host key mismatch explains the explicit recovery path', () {

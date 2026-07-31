@@ -30,4 +30,14 @@ void main() {
     expect(script, contains('codex app-server'));
     expect(script, contains(r'rm -f "$socket" "$pidfile"'));
   });
+
+  test('bootstrap never removes socket state before owning the startup lock', () {
+    const script = CodexDaemon.bootstrapScript;
+
+    final lockAcquisition = script.indexOf(r'while ! mkdir "$lock"');
+    final firstCleanup = script.indexOf(r'rm -f "$socket" "$pidfile"');
+
+    expect(lockAcquisition, greaterThanOrEqualTo(0));
+    expect(firstCleanup, greaterThan(lockAcquisition));
+  });
 }
