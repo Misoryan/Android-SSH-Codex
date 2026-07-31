@@ -53,9 +53,13 @@ while ! mkdir "$lock" 2>/dev/null; do
   sleep 0.1
 done
 trap 'rmdir "$lock" 2>/dev/null || true' EXIT HUP INT TERM
-if [ -S "$socket" ] && is_our_server_running; then
-  printf '%s\n' "$socket"
-  exit 0
+if is_our_server_running; then
+  if [ -S "$socket" ]; then
+    printf '%s\n' "$socket"
+    exit 0
+  fi
+  printf '%s\n' "App-server process is alive but $socket is unavailable; inspect $log" >&2
+  exit 1
 fi
 rm -f "$socket" "$pidfile"
 nohup codex app-server --listen "unix://$socket" </dev/null >>"$log" 2>&1 &

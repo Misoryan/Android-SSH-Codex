@@ -528,6 +528,7 @@ final class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _connectionAttempt++;
+    _cancelHostKeyPrompt();
     _reconnectTimer?.cancel();
     _refreshTimer?.cancel();
     unawaited(_closeTransport());
