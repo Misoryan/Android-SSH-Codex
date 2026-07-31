@@ -164,13 +164,11 @@ final class CodexRemoteApi {
         return TaskEvent.statusChanged(threadId, status);
       case 'item/agentMessage/delta':
         final itemId = params['itemId'] as String? ?? 'agent-message';
-        final sequence = params['sequence'] ??
-            params['deltaIndex'] ??
-            '${params['delta']}'.hashCode;
+        final sequence = params['sequence'] ?? params['deltaIndex'];
         return TaskEvent.agentDelta(
           threadId,
           itemId,
-          '$threadId:$itemId:$sequence',
+          sequence == null ? null : '$threadId:$itemId:$sequence',
           params['delta'] as String? ?? '',
         );
       case 'item/started':

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dartssh2/dartssh2.dart';
 
 import '../profiles/host_profile.dart';
@@ -18,6 +20,21 @@ final class HostKeyChallenge {
 
   bool get isMismatch => previousFingerprint != null;
 }
+
+final class HostKeyMismatchException implements Exception {
+  const HostKeyMismatchException(this.label, this.expected, this.actual);
+
+  final String label;
+  final String expected;
+  final String actual;
+
+  @override
+  String toString() =>
+      'Host key mismatch for $label. Expected $expected but received $actual. '
+      'Delete and recreate the host profile to trust a replacement key.';
+}
+
+String formatHostKeyFingerprint(List<int> bytes) => 'SHA256:${base64Encode(bytes)}';
 
 typedef HostKeyPrompt = Future<bool> Function(HostKeyChallenge challenge);
 
@@ -118,14 +135,16 @@ final class SshConnector {
       onPasswordRequest:
           password == null || password.isEmpty ? null : () => password,
       onVerifyHostKey: (algorithm, fingerprintBytes) async {
-        final fingerprint = String.fromCharCodes(fingerprintBytes);
+        final fingerprint = formatHostKeyFingerprint(fingerprintBytes);
         final previous = await _store.readHostFingerprint(profileId);
         if (previous == fingerprint) return true;
+        if (previous != null) {
+          throw HostKeyMismatchException(label, previous, fingerprint);
+        }
         final accepted = await prompt(HostKeyChallenge(
           label: label,
           algorithm: algorithm,
           fingerprint: fingerprint,
-          previousFingerprint: previous,
         ));
         if (accepted) {
           await _store.writeHostFingerprint(profileId, fingerprint);

@@ -279,7 +279,7 @@ class _HostKeyPrompt extends StatelessWidget {
       child: Center(
         child: AlertDialog(
           title: Text(
-              challenge.isMismatch ? 'Host key changed' : 'Trust this host?'),
+              challenge.isMismatch ? 'Host key rejected' : 'Trust this host?'),
           content: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 460),
             child: Column(
@@ -312,7 +312,7 @@ class _HostKeyPrompt extends StatelessWidget {
             ),
             FilledButton(
               onPressed: () => controller.answerHostKey(true),
-              child: Text(challenge.isMismatch ? 'Replace key' : 'Trust'),
+              child: const Text('Trust'),
             ),
           ],
         ),

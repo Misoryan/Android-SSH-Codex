@@ -169,11 +169,12 @@ final class TaskReducer {
   TaskState get state => _state;
 
   int beginConnection() {
+    _seenEvents.clear();
     _state = TaskState(
       epoch: _state.epoch + 1,
       refreshGeneration: 0,
       eventRevision: _state.eventRevision,
-      tasks: _state.tasks,
+      tasks: const {},
     );
     return _state.epoch;
   }
@@ -212,6 +213,8 @@ final class TaskReducer {
           current != null && current.revision > token.eventRevision;
       final effectiveStatus =
           changedDuringRefresh ? current.status : snapshot.status;
+      final preserveItems = changedDuringRefresh ||
+          (snapshot.items.isEmpty && (current?.items.isNotEmpty ?? false));
       final ownership = _ownershipFor(effectiveStatus, loadedByUs, snapshot.id);
       next[snapshot.id] = TaskRecord(
         id: snapshot.id,
@@ -220,7 +223,7 @@ final class TaskReducer {
         cwd: snapshot.cwd,
         updatedAt:
             changedDuringRefresh ? current.updatedAt : snapshot.updatedAt,
-        items: changedDuringRefresh ? current.items : snapshot.items,
+        items: preserveItems ? current!.items : snapshot.items,
         ownership: ownership,
         revision: current?.revision ?? token.eventRevision,
       );
@@ -255,8 +258,11 @@ final class TaskReducer {
         );
         break;
       case _TaskEventType.agentDelta:
-        final seen = _seenEvents.putIfAbsent(event.taskId, () => <String>{});
-        if (!seen.add(event.eventId!)) return;
+        final eventId = event.eventId;
+        if (eventId != null) {
+          final seen = _seenEvents.putIfAbsent(event.taskId, () => <String>{});
+          if (!seen.add(eventId)) return;
+        }
         final items = current.items.toList();
         final index = items.indexWhere((item) => item.id == event.itemId);
         if (index == -1) {

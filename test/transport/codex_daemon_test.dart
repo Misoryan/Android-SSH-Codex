@@ -19,6 +19,7 @@ void main() {
 
     expect(script, contains(r'rm -f "$socket" "$pidfile"'));
     expect(script, isNot(contains('rm -rf')));
+    expect(script, isNot(contains(r'\"')));
   });
 
   test('bootstrap validates its recorded process before reusing a socket', () {

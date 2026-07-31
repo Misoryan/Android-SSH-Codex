@@ -1,11 +1,12 @@
 final class SshConfig {
-  SshConfig._(this._sections);
+  SshConfig._(this._sections, this._parseWarnings);
 
   factory SshConfig.parse(String source) {
     final sections = <_HostSection>[
       _HostSection(const ['*'])
     ];
     var current = sections.first;
+    final warnings = <String>[];
 
     for (final rawLine in source.split(RegExp(r'\r?\n'))) {
       final tokens = _tokenize(rawLine);
@@ -16,15 +17,26 @@ final class SshConfig {
       if (key == 'host') {
         current = _HostSection(values);
         sections.add(current);
+      } else if (key == 'match') {
+        current = _HostSection(const []);
+        sections.add(current);
+        if (!warnings.contains('Unsupported SSH directive: Match')) {
+          warnings.add('Unsupported SSH directive: Match');
+        }
       } else {
         current.directives.add(_Directive(key, values.join(' ')));
+        if (!_supportedDirectives.contains(key)) {
+          final warning = 'Unsupported SSH directive: ${tokens.first}';
+          if (!warnings.contains(warning)) warnings.add(warning);
+        }
       }
     }
 
-    return SshConfig._(sections);
+    return SshConfig._(sections, warnings);
   }
 
   final List<_HostSection> _sections;
+  final List<String> _parseWarnings;
 
   ResolvedSshHost resolve(String alias) => _resolve(alias, resolveJump: true);
 
@@ -34,7 +46,7 @@ final class SshConfig {
     int? port;
     String? proxyJumpValue;
     final identityFiles = <String>[];
-    final warnings = <String>[];
+    final warnings = _parseWarnings.toList();
 
     for (final section in _sections) {
       if (!section.matches(alias)) continue;
@@ -93,6 +105,14 @@ final class SshConfig {
     );
   }
 }
+
+const _supportedDirectives = {
+  'hostname',
+  'user',
+  'port',
+  'identityfile',
+  'proxyjump',
+};
 
 final class ResolvedSshHost {
   const ResolvedSshHost({
