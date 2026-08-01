@@ -83,7 +83,7 @@ void main() {
     final error = describeConnectionFailure(
       ConnectionStage.ssh,
       const SocketException('Connection refused'),
-      const HostProfile(
+      HostProfile(
         id: 'lab',
         label: 'Lab',
         hostName: '192.0.2.10',
@@ -101,7 +101,7 @@ void main() {
     final error = describeConnectionFailure(
       ConnectionStage.rpcTunnel,
       const SocketException('Connection refused'),
-      const HostProfile(
+      HostProfile(
         id: 'lab',
         label: 'Lab',
         hostName: '192.0.2.10',

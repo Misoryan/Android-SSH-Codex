@@ -62,17 +62,18 @@ final class SshUnixTunnel {
     StreamSubscription<List<int>>? toRemote;
     StreamSubscription<List<int>>? toLocal;
     try {
-      channel = await openUnixChannelWithRetry(
+      final openedChannel = await openUnixChannelWithRetry<SSHForwardChannel>(
         () => _client.forwardLocalUnix(remoteSocketPath),
       );
-      _channels.add(channel);
+      channel = openedChannel;
+      _channels.add(openedChannel);
       toRemote = socket.listen(
-        channel.sink.add,
-        onDone: channel.sink.close,
+        openedChannel.sink.add,
+        onDone: openedChannel.sink.close,
         onError: (_) => channel?.destroy(),
         cancelOnError: true,
       );
-      toLocal = channel.stream.cast<List<int>>().listen(
+      toLocal = openedChannel.stream.cast<List<int>>().listen(
             socket.add,
             onDone: socket.close,
             onError: (_) => socket.destroy(),

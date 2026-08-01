@@ -67,7 +67,7 @@ void main() {
     const label = 'Raspberry Pi development environment';
     final controller = AppController.memory();
     await controller.saveProfile(
-      const HostProfile(
+      HostProfile(
         id: 'pi',
         label: label,
         hostName: '192.0.2.10',
