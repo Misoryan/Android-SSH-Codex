@@ -1,4 +1,4 @@
-# Fish Bootstrap and Responsive Host Card Design
+# Fish-Compatible Bootstrap Design
 
 ## Problem
 
@@ -8,10 +8,14 @@ passes an exec request through that login shell, while the application sends a
 POSIX shell script directly. Fish rejects the script before it creates the
 application cache directory.
 
-The same release can render a host label one character per line on devices
-whose logical width exceeds the current 600 dp host-card breakpoint while a
-large system text scale is active. The card selects its single-row desktop
-layout even though the label and actions do not fit.
+The application then replaces the useful remote failure with `Remote Codex
+app-server did not report its socket`. The locked dartssh2 `run()` API combines
+stdout and stderr and does not treat a nonzero remote exit as an exception, so
+the current byte-returning runner cannot distinguish success from failure.
+
+The reported host-card layout issue was an old APK installed by mistake. The
+single-line, stacked mobile host card is already present in v0.1.3 and requires
+no further code change.
 
 ## Scope
 
@@ -19,14 +23,14 @@ This change will:
 
 - execute the existing bootstrap script through `/bin/sh` independently of the
   account login shell;
-- preserve the remote command exit code, stdout, and stderr;
+- preserve the remote command exit code, exit signal, stdout, and stderr;
 - report a bounded, actionable bootstrap failure instead of a generic missing
   socket error;
-- use the stacked host-card layout until the content area is genuinely wide;
-- cover the observed fish and large-text layouts in automated tests.
+- cover fish-compatible invocation and structured command failures in tests;
+- update the documented remote shell requirement.
 
-It will not add arbitrary remote commands, change SSH authentication, add new
-SSH config directives, or redesign the rest of the workspace.
+It will not change the host-card UI, add arbitrary remote commands, change SSH
+authentication, or add new SSH config directives.
 
 ## Remote Bootstrap
 
@@ -44,7 +48,7 @@ data and are not embedded in the command; the payload contains only the
 non-secret environment fingerprint.
 
 The SSH adapter will use `SSHClient.runWithResult`. A small application-owned
-result type will carry stdout, stderr, and the optional exit code into
+result type will carry stdout, stderr, exit code, and exit signal into
 `CodexDaemon`, keeping dartssh2-specific process handling out of bootstrap
 parsing tests.
 
@@ -52,25 +56,11 @@ parsing tests.
 bytes. It will accept only a stdout line ending in `app-server.sock`. A nonzero
 exit, an exit signal, or successful completion without a socket path will throw
 an error containing a bounded diagnostic derived from stderr, falling back to
-stdout only when stderr is empty. Remote output will be trimmed and capped so a
-server cannot flood the UI or logcat.
+stdout only when stderr is empty. Control characters will be normalized and
+remote output will be capped so a server cannot flood the UI or logcat.
 
 SSH `SetEnv` rejection handling remains unchanged and continues to avoid
 including environment values in errors.
-
-## Host Card Layout
-
-The compact host card remains a two-row layout:
-
-- the first row contains the avatar and an expanded identity column;
-- the host label is one line with ellipsis, followed by the endpoint;
-- the second row contains edit, menu, and Connect actions.
-
-The single-row layout will be reserved for content widths of at least 800 dp.
-This aligns it with the application's desktop breakpoint and prevents a phone,
-foldable, or tablet with enlarged text from allocating only one-character
-width to the label. The existing desktop presentation remains unchanged when
-there is enough space.
 
 ## Testing
 
@@ -79,13 +69,11 @@ Tests will verify that:
 - the generated remote command is fixed-shape, decodes to the POSIX bootstrap,
   and does not expose environment values;
 - a successful structured SSH result returns the socket path;
-- nonzero remote exits expose bounded stderr and never silently become a
-  missing-socket `Bad state`;
+- nonzero remote exits and exit signals expose bounded stderr;
+- successful completion without a socket reports bounded diagnostic output;
 - SSH environment request rejection still produces the existing `AcceptEnv`
   guidance;
-- a host card at roughly 700 dp with enlarged text uses the stacked layout,
-  keeps the label on one line, and has no Flutter layout exception;
-- the existing 360 dp and desktop layout tests continue to pass.
+- existing tunnel and host-card regression tests continue to pass unchanged.
 
 All formatting, analysis, tests, Android builds, and OpenHarmony builds will run
 only in GitHub Actions. No Flutter, Dart, Gradle, Android, or OpenHarmony build
