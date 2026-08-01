@@ -99,12 +99,7 @@ jobs:
           for apk in build/app/outputs/flutter-apk/*.apk; do
             report=$("$apksigner" verify --verbose --print-certs "$apk")
             printf '%s\n' "$report"
-            actual=$(printf '%s\n' "$report" \
-              | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
-              | head -n 1 \
-              | tr -d ':[:space:]' \
-              | tr '[:upper:]' '[:lower:]')
-            test -n "$actual"
+            actual=$(printf '%s\n' "$report" | bash tool/extract_android_cert_sha256.sh)
             if [[ "$SIGNING_CONFIGURED" == true && "$actual" != "$expected" ]]; then
               echo "::error file=$apk::Signer SHA-256 mismatch: expected $expected, got $actual"
               exit 1
