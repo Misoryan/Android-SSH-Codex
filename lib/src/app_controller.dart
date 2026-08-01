@@ -217,9 +217,8 @@ final class AppController extends ChangeNotifier {
     try {
       final secret = await _store.readSecret(profile.id);
       final ownedThreadIds = await _store.readOwnedThreads(profile.id);
-      final projects = reconnecting
-          ? _projects
-          : await _store.readProjects(profile.id);
+      final projects =
+          reconnecting ? _projects : await _store.readProjects(profile.id);
       if (attempt != _connectionAttempt) return;
       if (!reconnecting) {
         _projects = projects;
@@ -540,8 +539,7 @@ final class AppController extends ChangeNotifier {
       throw ArgumentError('Project name and remote directory are required.');
     }
     final matchingCwd = _projects
-        .where((project) =>
-            normalizeRemoteCwd(project.cwd) == normalizedCwd)
+        .where((project) => normalizeRemoteCwd(project.cwd) == normalizedCwd)
         .firstOrNull;
     final id = projectId ??
         matchingCwd?.id ??
@@ -599,9 +597,7 @@ final class AppController extends ChangeNotifier {
     notifyListeners();
     try {
       final page = await api.readTaskPage(cwd: project.cwd, cursor: cursor);
-      if (api != _api ||
-          epoch != _epoch ||
-          project.id != _selectedProjectId) {
+      if (api != _api || epoch != _epoch || project.id != _selectedProjectId) {
         return;
       }
       final token = _taskReducer.beginRefresh(epoch);
