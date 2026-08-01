@@ -221,6 +221,57 @@ void main() {
     }
   });
 
+  test('finds and steers the active turn owned by another client', () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    final api = CodexRemoteApi(rpc);
+    try {
+      final reading = api.readActiveTurnId('thr_1');
+      final readRequest =
+          jsonDecode(transport.sent.single) as Map<String, dynamic>;
+      expect(readRequest['method'], 'thread/read');
+      transport.incoming.add(jsonEncode({
+        'id': readRequest['id'],
+        'result': {
+          'thread': {
+            'id': 'thr_1',
+            'turns': [
+              {'id': 'turn_done', 'status': 'completed', 'items': []},
+              {'id': 'turn_live', 'status': 'inProgress', 'items': []},
+            ],
+          },
+        },
+      }));
+      expect(await reading, 'turn_live');
+
+      final steering = api.steerTurn(
+        'thr_1',
+        'turn_live',
+        'Check the failing test first.',
+      );
+      final steerRequest =
+          jsonDecode(transport.sent[1]) as Map<String, dynamic>;
+      expect(steerRequest, {
+        'method': 'turn/steer',
+        'id': 2,
+        'params': {
+          'threadId': 'thr_1',
+          'expectedTurnId': 'turn_live',
+          'input': [
+            {'type': 'text', 'text': 'Check the failing test first.'},
+          ],
+        },
+      });
+      transport.incoming.add(jsonEncode({
+        'id': steerRequest['id'],
+        'result': {'turnId': 'turn_live'},
+      }));
+      await steering;
+    } finally {
+      await rpc.close();
+    }
+  });
+
   test('sets and reads the persisted thread goal', () async {
     final transport = _RecordingTransport();
     final rpc = JsonRpcClient(transport)..start();
