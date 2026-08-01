@@ -38,6 +38,10 @@ jobs:
           bash test/tool/configure_android_signing_test.sh
           bash test/tool/extract_android_cert_sha256_test.sh
           bash test/tool/android_signing_workflow_test.sh
-      - run: dart format --output=none --set-exit-if-changed lib test
+      - name: Show formatter patch
+        run: |
+          dart format lib/src/transport/codex_daemon.dart
+          git diff -- lib/src/transport/codex_daemon.dart
+          exit 1
       - run: flutter analyze
       - run: flutter test --reporter expanded
