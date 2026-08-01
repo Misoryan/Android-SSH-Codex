@@ -67,6 +67,22 @@ void main() {
     expect(catalog.unassignedExpanded, isTrue);
   });
 
+  test('refreshing the project head keeps explicitly loaded older tasks', () {
+    final catalog = TaskCatalog();
+    catalog.replaceProjectPage(
+      [snapshot('one', '/repo'), snapshot('two', '/repo')],
+      nextCursor: 'page-2',
+    );
+
+    catalog.mergeProjectHead(
+      [snapshot('new', '/repo'), snapshot('one', '/repo')],
+      nextCursor: 'new-page-2',
+    );
+
+    expect(catalog.projectTaskIds, ['new', 'one', 'two']);
+    expect(catalog.projectNextCursor, 'page-2');
+  });
+
   test('a stale detail completion cannot clear a newer selection', () {
     final state = TaskDetailLoadState();
     final first = state.begin('first');
