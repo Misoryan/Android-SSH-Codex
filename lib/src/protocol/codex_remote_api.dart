@@ -10,6 +10,13 @@ final class RemoteTaskBatch {
   final Set<String> loadedThreadIds;
 }
 
+final class RemoteTaskPage {
+  const RemoteTaskPage({required this.tasks, required this.nextCursor});
+
+  final List<TaskSnapshot> tasks;
+  final String? nextCursor;
+}
+
 final class PendingApproval {
   const PendingApproval({
     required this.requestId,
@@ -51,21 +58,30 @@ final class CodexRemoteApi {
   }
 
   Future<RemoteTaskBatch> readTaskBatch() async {
-    final threads = <TaskSnapshot>[];
-    String? cursor;
-    do {
-      final result = _map(await _rpc.request('thread/list', {
-        'limit': 100,
-        'archived': false,
-        if (cursor != null) 'cursor': cursor,
-      }));
-      final data = result['data'] as List<dynamic>? ?? const [];
-      threads.addAll(
-        data.map((item) => parseThread(_map(item))),
-      );
-      cursor = result['nextCursor'] as String?;
-    } while (cursor != null && cursor.isNotEmpty);
+    final page = await readTaskPage();
+    final loaded = await readLoadedThreadIds();
+    return RemoteTaskBatch(tasks: page.tasks, loadedThreadIds: loaded);
+  }
 
+  Future<RemoteTaskPage> readTaskPage({String? cwd, String? cursor}) async {
+    final result = _map(await _rpc.request('thread/list', {
+      'limit': 20,
+      'archived': false,
+      'sortKey': 'recency_at',
+      'sortDirection': 'desc',
+      if (cwd != null) 'cwd': cwd,
+      if (cursor != null) 'cursor': cursor,
+    }));
+    final data = result['data'] as List<dynamic>? ?? const [];
+    return RemoteTaskPage(
+      tasks: List.unmodifiable(
+        data.map((item) => parseThread(_map(item))),
+      ),
+      nextCursor: result['nextCursor'] as String?,
+    );
+  }
+
+  Future<Set<String>> readLoadedThreadIds() async {
     final loadedResult = _map(
       await _rpc.request('thread/loaded/list', const {}),
     );
@@ -76,7 +92,7 @@ final class CodexRemoteApi {
             .whereType<String>()
             .toSet()
         : <String>{};
-    return RemoteTaskBatch(tasks: threads, loadedThreadIds: loaded);
+    return loaded;
   }
 
   Future<TaskSnapshot> readThread(String threadId) async {
