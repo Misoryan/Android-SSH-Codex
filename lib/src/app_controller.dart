@@ -613,14 +613,4 @@ extension<T> on Iterable<T> {
     final iterator = this.iterator;
     return iterator.moveNext() ? iterator.current : null;
   }
-
-  T? get lastOrNull {
-    T? result;
-    var found = false;
-    for (final item in this) {
-      result = item;
-      found = true;
-    }
-    return found ? result : null;
-  }
 }
