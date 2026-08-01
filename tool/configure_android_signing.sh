@@ -49,6 +49,7 @@ cat > "$signing_file" <<'GRADLE'
                 keyPassword = keystoreProperties["keyPassword"] as String
                 storeFile = keystoreProperties["storeFile"]?.let { file(it) }
                 storePassword = keystoreProperties["storePassword"] as String
+                storeType = keystoreProperties["storeType"] as String
             }
         }
     }

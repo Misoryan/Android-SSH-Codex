@@ -73,12 +73,13 @@ jobs:
           fi
 
           umask 077
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/upload-keystore.jks
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/upload-keystore.p12
           {
             printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
             printf 'keyPassword=%s\n' "$KEY_PASSWORD"
             printf 'keyAlias=%s\n' "$KEY_ALIAS"
-            printf 'storeFile=../upload-keystore.jks\n'
+            printf 'storeFile=../upload-keystore.p12\n'
+            printf 'storeType=PKCS12\n'
           } > android/key.properties
           echo "configured=true" >> "$GITHUB_OUTPUT"
       - run: flutter pub get
@@ -140,7 +141,7 @@ jobs:
           retention-days: 14
       - name: Remove Android signing material
         if: always()
-        run: rm -f android/key.properties android/upload-keystore.jks
+        run: rm -f android/key.properties android/upload-keystore.p12
 
   ohos:
     name: OpenHarmony HAP

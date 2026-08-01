@@ -21,14 +21,15 @@ benefits from the same stable Android signature.
 
 Native OpenHarmony HAP signing is out of scope. It requires an OpenHarmony or
 Huawei signing certificate and provision profile associated with the target
-application and devices. The Android JKS cannot sign a HAP. The workflow keeps
+application and devices. The Android PKCS#12 keystore cannot sign a HAP. The workflow keeps
 publishing the clearly named unsigned HAP until those distributor-issued
 materials are available.
 
 ## Signing Identity
 
-Create one RSA-4096 Android release key with a long validity period. Keep the
-keystore and its credentials in two places only:
+Create one RSA-4096 Android release key with a long validity period and export
+it as an encrypted PKCS#12 keystore. Keep the keystore and its credentials in
+two places only:
 
 1. GitHub Actions repository secrets for automated builds.
 2. A local recovery directory outside the repository with mode `0700`; files
@@ -57,7 +58,7 @@ keystore only when `android/key.properties` exists. Pull requests without
 secrets continue to compile with Flutter's generated debug signing config, which
 keeps public fork CI usable.
 
-The build workflow restores `android/upload-keystore.jks` and writes
+The build workflow restores `android/upload-keystore.p12` and writes
 `android/key.properties` without logging secret values. Tag builds treat all
 four signing secrets and the expected fingerprint as mandatory. Non-tag builds
 may fall back to debug signing.
@@ -68,8 +69,9 @@ equal `ANDROID_SIGNING_CERT_SHA256`; otherwise the job fails before artifacts
 reach the release job. AAB signing is performed by the same Gradle release
 configuration.
 
-Temporary keystore and property files remain ignored by Git and are deleted in
-an `always()` cleanup step.
+Gradle explicitly loads the keystore as `PKCS12`. Temporary keystore and
+property files remain ignored by Git and are deleted in an `always()` cleanup
+step.
 
 ## Testing
 
@@ -91,4 +93,4 @@ verification. No Flutter, Android, or OpenHarmony build runs on the Raspberry Pi
 The next release becomes the signing baseline. Users with `v0.1.4` or older must
 uninstall once before installing it because the old key is unavailable. Release
 notes must state this explicitly. Starting with that baseline, future releases
-can update in place as long as the retained JKS is used.
+can update in place as long as the retained PKCS#12 keystore is used.

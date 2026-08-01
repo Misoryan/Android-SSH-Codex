@@ -8,7 +8,7 @@ authoritative build environment.
 
 | Target | Pinned toolchain | Output |
 | --- | --- | --- |
-| Android | Flutter 3.35.7, JDK 17 | arm64-v8a, armeabi-v7a, x86_64 APKs and AAB |
+| Android | Flutter 3.35.7, JDK 17 | stably signed arm64-v8a, armeabi-v7a, x86_64 APKs and AAB |
 | OpenHarmony | Flutter-OH commit `244a0e8abb3085e8675589b13e219af8c41cb7aa`, OpenHarmony SDK 6.1.1.280, JDK 17 | unsigned arm64 HAP |
 
 The OpenHarmony setup Action is pinned to commit
@@ -25,7 +25,36 @@ control while preserving deterministic identifiers and permissions.
   artifact with SHA-256 sums, and caches all large dependency layers.
 - A tag matching `v*` publishes the combined artifacts as a GitHub Release.
 
-The OpenHarmony HAP is intentionally unsigned. Signing identities and provision
+## Android release signing
+
+Android release signing uses one retained RSA-4096 identity stored as an
+encrypted PKCS#12 keystore. The workflow restores it only from these repository
+Secrets:
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+The public certificate fingerprint is stored in the repository variable
+`ANDROID_SIGNING_CERT_SHA256`. Every release-tag build verifies all APK and AAB
+signatures against that fingerprint before uploading artifacts. A tag build
+fails if any signing input is absent or the fingerprint differs. Pull requests
+without access to Secrets retain Flutter's generated debug-signing fallback and
+cannot publish a release.
+
+The recovery copy is outside the repository at
+`~/.config/android-ssh-codex/signing/`. The directory must remain mode `0700`
+and its contents mode `0600`. Back it up offline. Deleting or replacing both the
+recovery copy and GitHub Secrets permanently prevents future APKs from updating
+installed stable-signed versions.
+
+`v0.1.5` is the signing migration baseline. Builds through `v0.1.4` used
+ephemeral GitHub runner identities whose private keys no longer exist. Those
+users must uninstall once before installing `v0.1.5`; releases after `v0.1.5`
+can update it in place.
+
+The OpenHarmony HAP remains intentionally unsigned. Signing identities and provision
 profiles belong to the distributor and must not be committed to a public
 repository. Sign the HAP with DevEco Studio or the HarmonyOS signing tools before
 installing it on devices that reject unsigned packages.

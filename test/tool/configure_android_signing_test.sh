@@ -24,7 +24,8 @@ cat > "$tmp_dir/key.properties" <<'PROPERTIES'
 storePassword=fixture-password
 keyPassword=fixture-password
 keyAlias=fixture
-storeFile=fixture.jks
+storeFile=fixture.p12
+storeType=PKCS12
 PROPERTIES
 
 bash "$repo_root/tool/configure_android_signing.sh" "$gradle_file"
@@ -32,6 +33,7 @@ bash "$repo_root/tool/configure_android_signing.sh" "$gradle_file"
 grep -Fq 'import java.util.Properties' "$gradle_file"
 grep -Fq 'val keystorePropertiesFile = rootProject.file("key.properties")' "$gradle_file"
 grep -Fq 'create("release")' "$gradle_file"
+grep -Fq 'storeType = keystoreProperties["storeType"] as String' "$gradle_file"
 grep -Fq 'if (keystorePropertiesFile.exists())' "$gradle_file"
 grep -Fq 'signingConfigs.getByName("release")' "$gradle_file"
 grep -Fq 'signingConfigs.getByName("debug")' "$gradle_file"

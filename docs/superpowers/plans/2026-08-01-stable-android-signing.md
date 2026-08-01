@@ -4,7 +4,7 @@
 
 **Goal:** Give every GitHub Release Android APK/AAB the same retained signing identity so releases after the migration baseline install as upgrades.
 
-**Architecture:** A focused shell helper patches the CI-generated Kotlin Gradle project to load an optional `key.properties`. GitHub Actions restores the retained JKS from secrets, requires it for tags, and verifies the APK signer fingerprint before publishing.
+**Architecture:** A focused shell helper patches the CI-generated Kotlin Gradle project to load an optional `key.properties`. GitHub Actions restores the retained PKCS#12 keystore from secrets, requires it for tags, and verifies the APK signer fingerprint before publishing.
 
 **Tech Stack:** Bash, Kotlin Gradle DSL, Flutter 3.35.7, Android `apksigner`, GitHub Actions and repository secrets/variables.
 
@@ -62,7 +62,7 @@ Fail clearly if the expected file does not exist.
 - [ ] **Step 2: Restore signing inputs without logging them**
 
 Add a workflow step that validates the four secrets as a complete set, decodes
-`ANDROID_KEYSTORE_BASE64` into `android/upload-keystore.jks`, and writes
+`ANDROID_KEYSTORE_BASE64` into `android/upload-keystore.p12`, and writes
 `android/key.properties`. For a tag, missing input must exit nonzero. For other
 events, emit only a notice and retain debug fallback.
 
@@ -74,7 +74,7 @@ and case, and compare it with `ANDROID_SIGNING_CERT_SHA256` on tag builds.
 
 - [ ] **Step 4: Clean and ignore signing files**
 
-Ignore `android/key.properties` and `android/upload-keystore.jks`. Add an
+Ignore `android/key.properties` and `android/upload-keystore.p12`. Add an
 `if: always()` step that removes both files from the runner.
 
 - [ ] **Step 5: Commit**
@@ -93,8 +93,9 @@ git commit -m "build: use retained Android release signing key"
 
 - [ ] **Step 1: Generate the retained key outside the repository**
 
-Use `keytool -genkeypair` with RSA-4096 and a long validity period. Store the JKS
-and a mode-`0600` recovery note under
+Use OpenSSL to create an RSA-4096 certificate with a long validity period and
+export an encrypted PKCS#12 keystore. Store the keystore and mode-`0600`
+recovery files under
 `~/.config/android-ssh-codex/signing/`.
 
 - [ ] **Step 2: Configure GitHub**
