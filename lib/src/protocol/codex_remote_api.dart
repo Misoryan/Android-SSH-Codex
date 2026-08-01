@@ -66,7 +66,9 @@ final class CodexRemoteApi {
       cursor = result['nextCursor'] as String?;
     } while (cursor != null && cursor.isNotEmpty);
 
-    final loadedResult = _map(await _rpc.request('thread/loaded/list'));
+    final loadedResult = _map(
+      await _rpc.request('thread/loaded/list', const {}),
+    );
     final rawLoaded = loadedResult['data'] ?? loadedResult['threadIds'];
     final loaded = rawLoaded is List
         ? rawLoaded
