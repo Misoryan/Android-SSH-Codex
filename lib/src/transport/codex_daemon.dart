@@ -54,6 +54,9 @@ final class CodexDaemon {
   static String bootstrapCommand(Map<String, String> environment) =>
       _shellCommand(_bootstrapPayload(environment));
 
+  static String get sharedStartCommand =>
+      _shellCommand('exec codex app-server daemon start');
+
   static String proxyCommand(String socketPath) => _shellCommand(
         'exec codex app-server proxy --sock ${_shellQuote(socketPath)}',
       );
@@ -65,23 +68,11 @@ final class CodexDaemon {
     SshCommandRunner run, {
     required Map<String, String> environment,
   }) async {
-    late final SshCommandResult result;
-    try {
-      result = await run(
-        bootstrapCommand(environment),
-        environment: environment.isEmpty ? null : environment,
-      );
-    } on SSHChannelRequestError catch (error) {
-      final match = RegExp(
-        r'^Failed to set environment variable: ([A-Za-z_][A-Za-z0-9_]*)$',
-      ).firstMatch(error.message);
-      if (match == null) rethrow;
-      final name = match.group(1)!;
-      throw StateError(
-        'The SSH server rejected SetEnv $name. Allow it with AcceptEnv $name '
-        'in sshd_config, or remove it from this profile.',
-      );
-    }
+    final result = await _runWithEnvironment(
+      run,
+      bootstrapCommand(environment),
+      environment,
+    );
 
     final failures = <String>[
       if (result.exitCode != null && result.exitCode != 0)
@@ -110,11 +101,142 @@ final class CodexDaemon {
     return socketPath;
   }
 
+  static Future<String> startShared(
+    SshCommandRunner run, {
+    required Map<String, String> environment,
+  }) async {
+    final result = await _runWithEnvironment(
+      run,
+      sharedStartCommand,
+      environment,
+    );
+    if (_commandFailed(result)) {
+      if (_daemonSubcommandIsUnsupported(result)) {
+        return _probeExistingSharedSocket(run, environment);
+      }
+      throw CodexBootstrapException(
+        'Shared app-server start failed with ${_failureSummary(result)}: '
+        '${_diagnostic(result)}',
+      );
+    }
+
+    final output = utf8.decode(result.stdout, allowMalformed: true).trim();
+    Object? decoded;
+    try {
+      decoded = jsonDecode(output);
+    } on FormatException {
+      throw CodexBootstrapException(
+        'Shared app-server daemon returned invalid JSON: '
+        '${_diagnostic(result)}',
+      );
+    }
+    if (decoded is! Map<String, dynamic>) {
+      throw const CodexBootstrapException(
+        'Shared app-server daemon returned invalid JSON: expected an object.',
+      );
+    }
+    final socketPath = decoded['socketPath'];
+    if (socketPath is! String || !_isAbsoluteUnixSocketPath(socketPath)) {
+      throw const CodexBootstrapException(
+        'Shared app-server daemon returned an invalid socketPath.',
+      );
+    }
+    return socketPath;
+  }
+
+  static Future<SshCommandResult> _runWithEnvironment(
+    SshCommandRunner run,
+    String command,
+    Map<String, String> environment,
+  ) async {
+    try {
+      return await run(
+        command,
+        environment: environment.isEmpty ? null : environment,
+      );
+    } on SSHChannelRequestError catch (error) {
+      final match = RegExp(
+        r'^Failed to set environment variable: ([A-Za-z_][A-Za-z0-9_]*)$',
+      ).firstMatch(error.message);
+      if (match == null) rethrow;
+      final name = match.group(1)!;
+      throw StateError(
+        'The SSH server rejected SetEnv $name. Allow it with AcceptEnv $name '
+        'in sshd_config, or remove it from this profile.',
+      );
+    }
+  }
+
+  static Future<String> _probeExistingSharedSocket(
+    SshCommandRunner run,
+    Map<String, String> environment,
+  ) async {
+    final result = await _runWithEnvironment(
+      run,
+      _shellCommand(_sharedSocketProbeScript),
+      environment,
+    );
+    if (_commandFailed(result)) {
+      throw CodexBootstrapException(
+        'Shared app-server is unavailable with this Codex version. Update '
+        'Codex, or select Custom or Isolated. ${_diagnostic(result)}',
+      );
+    }
+    final socketPath = utf8.decode(result.stdout, allowMalformed: true).trim();
+    if (!_isAbsoluteUnixSocketPath(socketPath)) {
+      throw const CodexBootstrapException(
+        'Shared app-server socket probe returned an invalid path. Update '
+        'Codex, or select Custom or Isolated.',
+      );
+    }
+    return socketPath;
+  }
+
+  static bool _commandFailed(SshCommandResult result) =>
+      (result.exitCode != null && result.exitCode != 0) ||
+      result.exitSignal != null;
+
+  static String _failureSummary(SshCommandResult result) {
+    final failures = <String>[
+      if (result.exitCode != null && result.exitCode != 0)
+        'exit code ${result.exitCode}',
+      if (result.exitSignal != null) 'signal ${result.exitSignal}',
+    ];
+    return failures.join(' and ');
+  }
+
+  static bool _daemonSubcommandIsUnsupported(SshCommandResult result) {
+    final output = utf8.decode(
+      [...result.stderr, ...result.stdout],
+      allowMalformed: true,
+    );
+    return RegExp(
+      r'''(?:unrecognized|unknown) subcommand\s+['"]daemon['"]''',
+      caseSensitive: false,
+    ).hasMatch(output);
+  }
+
+  static bool _isAbsoluteUnixSocketPath(String value) =>
+      value.isNotEmpty &&
+      value.startsWith('/') &&
+      !RegExp(r'[\x00-\x1F\x7F]').hasMatch(value);
+
   static String _diagnostic(SshCommandResult result) => _boundedDiagnostic(
         result.stderr.isNotEmpty ? result.stderr : result.stdout,
       );
 
   static const _maxDiagnosticCharacters = 1200;
+
+  static const _sharedSocketProbeScript = r'''
+set -eu
+socket="${CODEX_HOME:-$HOME/.codex}/app-server-control/app-server-control.sock"
+if [ -S "$socket" ]; then
+  printf '%s\n' "$socket"
+  exit 0
+fi
+printf '%s\n' "No existing shared app-server socket at $socket" >&2
+exit 1
+''';
 
   static String _boundedDiagnostic(List<int> bytes) {
     var text = utf8.decode(bytes, allowMalformed: true).trim();
