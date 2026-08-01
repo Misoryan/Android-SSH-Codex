@@ -18,6 +18,9 @@ class TaskView extends StatefulWidget {
 class _TaskViewState extends State<TaskView> {
   final _composer = TextEditingController();
   var _sending = false;
+  var _commandBusy = false;
+  var _lastCommandSucceeded = true;
+  RemoteSkill? _selectedSkill;
 
   @override
   void dispose() {
@@ -33,7 +36,12 @@ class _TaskViewState extends State<TaskView> {
         .toList(growable: false);
     return Column(
       children: [
-        _TaskHeader(controller: widget.controller, task: task),
+        _TaskHeader(
+          controller: widget.controller,
+          task: task,
+          commandBusy: _commandBusy,
+          onCommand: _handleCommand,
+        ),
         const Divider(height: 1),
         if (task.ownership == TaskOwnership.external)
           const MaterialBanner(
@@ -58,6 +66,21 @@ class _TaskViewState extends State<TaskView> {
             onDecision: (decision) =>
                 widget.controller.answerApproval(approval, decision),
           ),
+        if (_selectedSkill case final skill?)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: InputChip(
+                avatar: const Icon(Icons.auto_awesome, size: 18),
+                label: Text('\$${skill.name}'),
+                tooltip: skill.description.isEmpty ? null : skill.description,
+                onDeleted: _sending
+                    ? null
+                    : () => setState(() => _selectedSkill = null),
+              ),
+            ),
+          ),
         const Divider(height: 1),
         _Composer(
           controller: _composer,
@@ -73,12 +96,252 @@ class _TaskViewState extends State<TaskView> {
     if (text.isEmpty) return;
     setState(() => _sending = true);
     try {
-      await widget.controller.sendPrompt(text);
+      await widget.controller.sendPrompt(text, skill: _selectedSkill);
+      if (!mounted) return;
       _composer.clear();
+      setState(() => _selectedSkill = null);
+    } catch (exception) {
+      _showError(exception);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
   }
+
+  Future<void> _handleCommand(TaskCommand command) async {
+    switch (command) {
+      case TaskCommand.skills:
+        await _chooseSkill();
+      case TaskCommand.goal:
+        await _editGoal();
+      case TaskCommand.compact:
+        await _compactTask();
+    }
+  }
+
+  Future<void> _chooseSkill() async {
+    final skills =
+        await _runCommand(widget.controller.listSkillsForSelectedTask);
+    if (!mounted || skills == null) return;
+    final selected = await showDialog<RemoteSkill>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Choose a skill'),
+        content: SizedBox(
+          width: 480,
+          child: skills.isEmpty
+              ? const Text('No enabled skills are available for this project.')
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: skills.length,
+                  itemBuilder: (context, index) {
+                    final skill = skills[index];
+                    return ListTile(
+                      leading: const Icon(Icons.auto_awesome),
+                      title: Text('\$${skill.name}'),
+                      subtitle: skill.description.isEmpty
+                          ? null
+                          : Text(skill.description),
+                      onTap: () => Navigator.pop(context, skill),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (mounted && selected != null) {
+      setState(() => _selectedSkill = selected);
+    }
+  }
+
+  Future<void> _editGoal() async {
+    final current = await _runCommand(widget.controller.readSelectedGoal);
+    if (!mounted || !_lastCommandSucceeded) return;
+    final objective = TextEditingController(text: current?.objective ?? '');
+    final budget = TextEditingController(
+      text: current?.tokenBudget?.toString() ?? '',
+    );
+    final action = await showDialog<_GoalAction>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Task goal'),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: objective,
+                autofocus: true,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Objective',
+                  hintText: 'What should this task accomplish?',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: budget,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Token budget (optional)',
+                ),
+              ),
+              if (current != null) ...[
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '${current.status} · ${current.tokensUsed} tokens · '
+                    '${current.timeUsedSeconds}s',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          if (current != null)
+            TextButton(
+              onPressed: () => Navigator.pop(context, _GoalAction.clear),
+              child: const Text('Clear goal'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, _GoalAction.save),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || action == null) {
+      objective.dispose();
+      budget.dispose();
+      return;
+    }
+    if (action == _GoalAction.clear) {
+      await _runCommand(widget.controller.clearSelectedGoal);
+    } else {
+      final tokenBudget =
+          budget.text.trim().isEmpty ? null : int.tryParse(budget.text.trim());
+      if (budget.text.trim().isNotEmpty && tokenBudget == null) {
+        _showError('Token budget must be a whole number.');
+      } else {
+        await _runCommand(
+          () => widget.controller.setSelectedGoal(
+            objective: objective.text,
+            tokenBudget: tokenBudget,
+          ),
+        );
+      }
+    }
+    objective.dispose();
+    budget.dispose();
+  }
+
+  Future<void> _compactTask() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Compact context?'),
+        content: const Text(
+          'Codex will summarize older context to make more room in this task.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Compact'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _runCommand(widget.controller.compactSelectedTask);
+    }
+  }
+
+  Future<T?> _runCommand<T>(Future<T> Function() operation) async {
+    if (_commandBusy) return null;
+    setState(() {
+      _commandBusy = true;
+      _lastCommandSucceeded = true;
+    });
+    try {
+      return await operation();
+    } catch (exception) {
+      _lastCommandSucceeded = false;
+      _showError(exception);
+      return null;
+    } finally {
+      if (mounted) setState(() => _commandBusy = false);
+    }
+  }
+
+  void _showError(Object error) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error.toString())),
+    );
+  }
+}
+
+enum _GoalAction { save, clear }
+
+enum TaskCommand { skills, goal, compact }
+
+class TaskCommandMenu extends StatelessWidget {
+  const TaskCommandMenu({
+    required this.enabled,
+    required this.onSelected,
+    super.key,
+  });
+
+  final bool enabled;
+  final ValueChanged<TaskCommand> onSelected;
+
+  @override
+  Widget build(BuildContext context) => PopupMenuButton<TaskCommand>(
+        enabled: enabled,
+        tooltip: 'Task commands',
+        onSelected: onSelected,
+        itemBuilder: (context) => const [
+          PopupMenuItem(
+            value: TaskCommand.skills,
+            child: ListTile(
+              leading: Icon(Icons.auto_awesome),
+              title: Text('Skills'),
+            ),
+          ),
+          PopupMenuItem(
+            value: TaskCommand.goal,
+            child: ListTile(
+              leading: Icon(Icons.flag_outlined),
+              title: Text('Goal'),
+            ),
+          ),
+          PopupMenuItem(
+            value: TaskCommand.compact,
+            child: ListTile(
+              leading: Icon(Icons.compress),
+              title: Text('Compact context'),
+            ),
+          ),
+        ],
+        icon: const Icon(Icons.more_vert),
+      );
 }
 
 class TaskTimeline extends StatelessWidget {
@@ -134,10 +397,17 @@ class TaskTimeline extends StatelessWidget {
 }
 
 class _TaskHeader extends StatelessWidget {
-  const _TaskHeader({required this.controller, required this.task});
+  const _TaskHeader({
+    required this.controller,
+    required this.task,
+    required this.commandBusy,
+    required this.onCommand,
+  });
 
   final AppController controller;
   final TaskRecord task;
+  final bool commandBusy;
+  final ValueChanged<TaskCommand> onCommand;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -176,6 +446,10 @@ class _TaskHeader extends StatelessWidget {
                 onPressed: controller.interruptSelectedTask,
                 icon: const Icon(Icons.stop_circle_outlined),
               ),
+            TaskCommandMenu(
+              enabled: controller.isConnected && task.canWrite && !commandBusy,
+              onSelected: onCommand,
+            ),
           ],
         ),
       );

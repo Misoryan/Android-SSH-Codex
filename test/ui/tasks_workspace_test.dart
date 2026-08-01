@@ -105,4 +105,23 @@ void main() {
     ));
     expect(find.text('No task events yet'), findsOneWidget);
   });
+
+  testWidgets('task command menu exposes stable commands only', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: TaskCommandMenu(
+          enabled: true,
+          onSelected: (_) {},
+        ),
+      ),
+    ));
+
+    await tester.tap(find.byTooltip('Task commands'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Skills'), findsOneWidget);
+    expect(find.text('Goal'), findsOneWidget);
+    expect(find.text('Compact context'), findsOneWidget);
+    expect(find.textContaining('Experimental'), findsNothing);
+  });
 }

@@ -680,10 +680,10 @@ final class AppController extends ChangeNotifier {
     notifyListeners();
     await api.startTurn(threadId, prompt);
     if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
-    await refreshTasks(resetPages: true);
+    await refreshTasks();
   }
 
-  Future<void> sendPrompt(String prompt) async {
+  Future<void> sendPrompt(String prompt, {RemoteSkill? skill}) async {
     final api = _requireApi();
     final attempt = _connectionAttempt;
     final epoch = _epoch;
@@ -708,13 +708,65 @@ final class AppController extends ChangeNotifier {
       }
       _loadedThreadIds = {..._loadedThreadIds, task.id};
     }
-    await api.startTurn(task.id, prompt);
+    final text = skill == null ? prompt : '\$${skill.name} $prompt';
+    await api.startTurn(task.id, text, skill: skill);
     if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
     _taskReducer.applyEvent(
       _epoch,
       TaskEvent.statusChanged(task.id, TaskStatus.running),
     );
     notifyListeners();
+  }
+
+  Future<List<RemoteSkill>> listSkillsForSelectedTask() async {
+    final cwd = selectedTask?.cwd.isNotEmpty == true
+        ? selectedTask!.cwd
+        : selectedProject?.cwd;
+    if (cwd == null || cwd.isEmpty) {
+      throw StateError('The selected task has no working directory.');
+    }
+    return _requireApi().listSkills(cwd);
+  }
+
+  Future<RemoteThreadGoal?> readSelectedGoal() {
+    final task = selectedTask;
+    if (task == null) throw StateError('Select a task first.');
+    return _requireApi().readThreadGoal(task.id);
+  }
+
+  Future<RemoteThreadGoal> setSelectedGoal({
+    required String objective,
+    int? tokenBudget,
+  }) {
+    final task = selectedTask;
+    if (task == null) throw StateError('Select a task first.');
+    final normalizedObjective = objective.trim();
+    if (normalizedObjective.isEmpty) {
+      throw ArgumentError('Goal objective is required.');
+    }
+    if (tokenBudget != null && tokenBudget <= 0) {
+      throw ArgumentError('Token budget must be positive.');
+    }
+    return _requireApi().setThreadGoal(
+      task.id,
+      objective: normalizedObjective,
+      tokenBudget: tokenBudget,
+    );
+  }
+
+  Future<void> clearSelectedGoal() {
+    final task = selectedTask;
+    if (task == null) throw StateError('Select a task first.');
+    return _requireApi().clearThreadGoal(task.id);
+  }
+
+  Future<void> compactSelectedTask() {
+    final task = selectedTask;
+    if (task == null) throw StateError('Select a task first.');
+    if (!task.canWrite) {
+      throw StateError('This running task is owned by another Codex client.');
+    }
+    return _requireApi().compactThread(task.id);
   }
 
   Future<void> interruptSelectedTask() async {
