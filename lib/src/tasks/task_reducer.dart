@@ -243,6 +243,36 @@ final class TaskReducer {
     );
   }
 
+  void applySnapshot(
+    int epoch,
+    TaskSnapshot snapshot,
+    Set<String> loadedByUs,
+  ) {
+    if (epoch != _state.epoch) return;
+    final current = _state.tasks[snapshot.id];
+    final status = current?.status ?? snapshot.status;
+    final tasks = Map<String, TaskRecord>.of(_state.tasks)
+      ..[snapshot.id] = TaskRecord(
+        id: snapshot.id,
+        title: snapshot.title,
+        status: status,
+        cwd: snapshot.cwd,
+        updatedAt:
+            current != null && current.updatedAt.isAfter(snapshot.updatedAt)
+                ? current.updatedAt
+                : snapshot.updatedAt,
+        items: _mergeItems(snapshot.items, current?.items ?? const []),
+        ownership: _ownershipFor(status, loadedByUs, snapshot.id),
+        revision: current?.revision ?? _state.eventRevision,
+      );
+    _state = TaskState(
+      epoch: _state.epoch,
+      refreshGeneration: _state.refreshGeneration,
+      eventRevision: _state.eventRevision,
+      tasks: Map.unmodifiable(tasks),
+    );
+  }
+
   void applyEvent(int epoch, TaskEvent event) {
     if (epoch != _state.epoch) return;
     final revision = _state.eventRevision + 1;
@@ -305,6 +335,17 @@ final class TaskReducer {
       tasks: Map.unmodifiable(tasks),
     );
   }
+}
+
+List<TaskItem> _mergeItems(
+  List<TaskItem> snapshot,
+  List<TaskItem> current,
+) {
+  final items = <String, TaskItem>{
+    for (final item in snapshot) item.id: item,
+    for (final item in current) item.id: item,
+  };
+  return List.unmodifiable(items.values);
 }
 
 TaskOwnership _ownershipFor(
