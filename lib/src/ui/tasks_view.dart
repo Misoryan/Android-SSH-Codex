@@ -16,7 +16,13 @@ class TasksWorkspace extends StatelessWidget {
     final wide = MediaQuery.sizeOf(context).width >= 800;
     final selected = controller.selectedTask;
     if (!wide && selected != null) {
-      return SafeArea(child: TaskView(controller: controller, task: selected));
+      return SafeArea(
+        child: TaskView(
+          key: ValueKey(selected.id),
+          controller: controller,
+          task: selected,
+        ),
+      );
     }
     final list = _TaskList(controller: controller);
     if (!wide) return SafeArea(child: list);
@@ -28,7 +34,11 @@ class TasksWorkspace extends StatelessWidget {
           Expanded(
             child: selected == null
                 ? const _NoTaskSelected()
-                : TaskView(controller: controller, task: selected),
+                : TaskView(
+                    key: ValueKey(selected.id),
+                    controller: controller,
+                    task: selected,
+                  ),
           ),
         ],
       ),

@@ -12,6 +12,22 @@ import 'package:android_ssh_codex/src/transport/codex_daemon.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('auto-connect selection only accepts the remembered profile', () {
+    final profiles = [
+      HostProfile(
+        id: 'pi',
+        label: 'Pi',
+        hostName: 'pi.example.test',
+        user: 'codex',
+        port: 22,
+      ),
+    ];
+
+    expect(resolveAutoConnectProfile(profiles, 'pi'), profiles.single);
+    expect(resolveAutoConnectProfile(profiles, 'missing'), isNull);
+    expect(resolveAutoConnectProfile(profiles, null), isNull);
+  });
+
   test('storage failures do not prevent application initialization', () async {
     final controller = AppController(
       store: _ReadProfileStore(
@@ -224,6 +240,13 @@ final class _ReadProfileStore implements ProfileStore {
 
   @override
   Future<HostSecret> readSecret(String id) => throw UnimplementedError();
+
+  @override
+  Future<String?> readAutoConnectHostId() async => null;
+
+  @override
+  Future<void> writeAutoConnectHostId(String? profileId) =>
+      throw UnimplementedError();
 
   @override
   Future<String?> readHostFingerprint(String profileId) =>

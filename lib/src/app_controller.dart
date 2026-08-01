@@ -28,6 +28,14 @@ enum ConnectionStage {
   refresh,
 }
 
+HostProfile? resolveAutoConnectProfile(
+  List<HostProfile> profiles,
+  String? profileId,
+) {
+  if (profileId == null) return null;
+  return profiles.where((profile) => profile.id == profileId).firstOrNull;
+}
+
 Future<String> resolveCodexSocketForProfile(
   SshCommandRunner run,
   HostProfile profile,
@@ -104,6 +112,7 @@ final class AppController extends ChangeNotifier {
   var _refreshQueuedResetPages = false;
   var _loadingProjectPage = false;
   var _loadingUnassignedPage = false;
+  Future<void> _autoConnectIntentWrite = Future.value();
 
   List<HostProfile> get profiles => _profiles;
   List<RemoteProject> get projects => _projects;
@@ -150,13 +159,21 @@ final class AppController extends ChangeNotifier {
       _detailLoadState.taskId == taskId ? _detailLoadState.error : null;
 
   Future<void> initialize() async {
+    HostProfile? autoConnectProfile;
     try {
       _profiles = await _store.readProfiles();
+      autoConnectProfile = resolveAutoConnectProfile(
+        _profiles,
+        await _store.readAutoConnectHostId(),
+      );
     } catch (exception) {
       _profiles = const [];
       _error = 'Could not read secure storage: $exception';
     }
     notifyListeners();
+    if (autoConnectProfile != null) {
+      unawaited(connectHost(autoConnectProfile));
+    }
   }
 
   void selectSection(AppSection section) {
@@ -295,6 +312,8 @@ final class AppController extends ChangeNotifier {
       if (attempt != _connectionAttempt) return;
       _connectionPhase = RemoteConnectionPhase.connected;
       _reconnectAttempt = 0;
+      await _rememberAutoConnectHost(profile.id);
+      if (attempt != _connectionAttempt) return;
       _refreshTimer = Timer.periodic(
         const Duration(seconds: 10),
         (_) => unawaited(refreshTasks()),
@@ -776,6 +795,55 @@ final class AppController extends ChangeNotifier {
     await _requireApi().interruptTurn(task.id, turnId);
   }
 
+  Future<void> guideExternalTask(String guidance) async {
+    final task = selectedTask;
+    if (task == null || task.ownership != TaskOwnership.external) {
+      throw StateError('Select a task running in another client first.');
+    }
+    final normalized = guidance.trim();
+    if (normalized.isEmpty) throw ArgumentError('Guidance is required.');
+    final api = _requireApi();
+    final turnId = await api.readActiveTurnId(task.id);
+    if (turnId == null) {
+      throw StateError('The other client no longer has an active turn.');
+    }
+    await api.steerTurn(task.id, turnId, normalized);
+  }
+
+  Future<void> takeOverExternalTask() async {
+    final task = selectedTask;
+    final profileId = _selectedHostId;
+    if (task == null ||
+        profileId == null ||
+        task.ownership != TaskOwnership.external) {
+      throw StateError('Select a task running in another client first.');
+    }
+    final api = _requireApi();
+    final attempt = _connectionAttempt;
+    final epoch = _epoch;
+    final turnId = await api.readActiveTurnId(task.id);
+    if (turnId != null) await api.interruptTurn(task.id, turnId);
+    if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
+    await api.resumeThread(task.id);
+    if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
+    if (!await _claimThread(
+      task.id,
+      api: api,
+      attempt: attempt,
+      epoch: epoch,
+      profileId: profileId,
+    )) {
+      return;
+    }
+    _loadedThreadIds = {..._loadedThreadIds, task.id};
+    _activeTurnIds.remove(task.id);
+    _taskReducer.applyEvent(
+      epoch,
+      TaskEvent.statusChanged(task.id, TaskStatus.interrupted),
+    );
+    notifyListeners();
+  }
+
   void answerApproval(PendingApproval approval, String decision) {
     if (!isConnected ||
         !_approvals.any((pending) => identical(pending, approval))) {
@@ -877,7 +945,30 @@ final class AppController extends ChangeNotifier {
     _epoch = _taskReducer.beginConnection();
     _approvals = const [];
     await _closeTransport();
+    try {
+      await _writeAutoConnectIntent(null);
+    } catch (exception) {
+      _error = 'Disconnected, but could not clear auto-connect: $exception';
+    }
     notifyListeners();
+  }
+
+  Future<void> _rememberAutoConnectHost(String profileId) async {
+    try {
+      await _writeAutoConnectIntent(profileId);
+    } catch (exception) {
+      debugPrint('Could not remember auto-connect host: $exception');
+    }
+  }
+
+  Future<void> _writeAutoConnectIntent(String? profileId) {
+    final operation = _autoConnectIntentWrite.then(
+      (_) => _store.writeAutoConnectHostId(profileId),
+    );
+    _autoConnectIntentWrite = operation.catchError((Object exception) {
+      debugPrint('Could not persist auto-connect intent: $exception');
+    });
+    return operation;
   }
 
   List<TaskRecord> _tasksForIds(List<String> ids) => ids
