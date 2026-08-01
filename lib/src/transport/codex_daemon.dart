@@ -63,8 +63,7 @@ final class CodexDaemon {
   static String get sharedStartCommand =>
       _shellCommand('exec codex app-server daemon start');
 
-  static String proxyCommand(String socketPath) =>
-      _shellCommandPreservingStdin(
+  static String proxyCommand(String socketPath) => _shellCommandPreservingStdin(
         'exec codex app-server proxy --sock ${_shellQuote(socketPath)}',
       );
 
