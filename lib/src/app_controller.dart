@@ -591,13 +591,13 @@ String describeConnectionFailure(
     ConnectionStage.ssh => 'SSH connection to $endpoint failed: $detail',
     ConnectionStage.remoteAppServer =>
       'SSH connected successfully, but the remote Codex app-server failed: '
-      '$detail',
+          '$detail',
     ConnectionStage.unixTunnel =>
       'SSH connected successfully, but the remote Codex socket could not be '
-      'forwarded: $detail',
+          'forwarded: $detail',
     ConnectionStage.rpcTunnel =>
       'SSH connected successfully, but the Codex tunnel refused the local RPC '
-      'connection: $detail',
+          'connection: $detail',
     ConnectionStage.initialize =>
       'The Codex tunnel connected, but RPC initialization failed: $detail',
     ConnectionStage.refresh =>
