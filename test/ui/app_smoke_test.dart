@@ -1,7 +1,7 @@
 import 'package:android_ssh_codex/src/app.dart';
 import 'package:android_ssh_codex/src/app_controller.dart';
 import 'package:android_ssh_codex/src/profiles/host_profile.dart';
-import 'package:flutter/material.dart' show Size;
+import 'package:flutter/material.dart' show Size, Text, TextOverflow;
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -56,4 +56,37 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('narrow host cards keep long names above their actions', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const label = 'Raspberry Pi development environment';
+    final controller = AppController.memory();
+    await controller.saveProfile(
+      HostProfile(
+        id: 'pi',
+        label: label,
+        hostName: '192.0.2.10',
+        user: 'codex',
+        port: 22,
+      ),
+      const HostSecret(password: 'secret'),
+    );
+
+    await tester.pumpWidget(AndroidSshCodexApp(controller: controller));
+    await tester.pumpAndSettle();
+
+    final title = tester.widget<Text>(find.text(label));
+    expect(title.maxLines, 1);
+    expect(title.overflow, TextOverflow.ellipsis);
+    expect(
+      tester.getTopLeft(find.text('Connect')).dy,
+      greaterThan(tester.getBottomLeft(find.text(label)).dy),
+    );
+    expect(tester.takeException(), isNull);
+  });
 }

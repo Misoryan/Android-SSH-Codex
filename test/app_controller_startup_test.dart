@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:android_ssh_codex/main.dart' as application;
 import 'package:android_ssh_codex/src/app.dart';
@@ -77,6 +78,41 @@ void main() {
       expect(identical(receivedEnvironment, profile.environment), isTrue);
     },
   );
+
+  test('connection errors identify the SSH TCP stage and endpoint', () {
+    final error = describeConnectionFailure(
+      ConnectionStage.ssh,
+      const SocketException('Connection refused'),
+      HostProfile(
+        id: 'lab',
+        label: 'Lab',
+        hostName: '192.0.2.10',
+        user: 'codex',
+        port: 2222,
+      ),
+    );
+
+    expect(error, contains('SSH'));
+    expect(error, contains('192.0.2.10:2222'));
+    expect(error, contains('Connection refused'));
+  });
+
+  test('connection errors distinguish the local Codex tunnel stage', () {
+    final error = describeConnectionFailure(
+      ConnectionStage.rpcTunnel,
+      const SocketException('Connection refused'),
+      HostProfile(
+        id: 'lab',
+        label: 'Lab',
+        hostName: '192.0.2.10',
+        user: 'codex',
+        port: 22,
+      ),
+    );
+
+    expect(error, contains('Codex tunnel'));
+    expect(error, contains('SSH connected successfully'));
+  });
 }
 
 final class _ReadProfileStore implements ProfileStore {
