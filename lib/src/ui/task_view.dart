@@ -44,16 +44,12 @@ class _TaskViewState extends State<TaskView> {
             actions: [SizedBox.shrink()],
           ),
         Expanded(
-          child: task.items.isEmpty
-              ? const Center(child: Text('No task events yet'))
-              : SelectionArea(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
-                    itemCount: task.items.length,
-                    itemBuilder: (_, index) =>
-                        TimelineItemView(item: task.items[index]),
-                  ),
-                ),
+          child: TaskTimeline(
+            items: task.items,
+            loading: widget.controller.isTaskDetailLoading(task.id),
+            error: widget.controller.taskDetailError(task.id),
+            onRetry: widget.controller.retrySelectedTaskDetails,
+          ),
         ),
         for (final approval in approvals)
           _ApprovalBar(
@@ -82,6 +78,58 @@ class _TaskViewState extends State<TaskView> {
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+}
+
+class TaskTimeline extends StatelessWidget {
+  const TaskTimeline({
+    required this.items,
+    this.loading = false,
+    this.error,
+    this.onRetry,
+    super.key,
+  });
+
+  final List<TaskItem> items;
+  final bool loading;
+  final String? error;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.error_outline,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(height: 10),
+              Text(error!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              OutlinedButton(onPressed: onRetry, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+    if (items.isEmpty) {
+      return const Center(child: Text('No task events yet'));
+    }
+    return SelectionArea(
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+        itemCount: items.length,
+        itemBuilder: (_, index) => TimelineItemView(item: items[index]),
+      ),
+    );
   }
 }
 
