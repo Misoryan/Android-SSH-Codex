@@ -56,19 +56,17 @@ class _ActivityCard extends StatelessWidget {
         : item.text.trim();
     final tile = ExpansionTile(
       leading: Icon(_icon, size: 20, color: _color(context)),
-      title: Text(item.title ?? _label),
+      title: Row(
+        children: [
+          Expanded(child: Text(item.title ?? _label)),
+          if (item.status != null) _StatusBadge(status: item.status!),
+        ],
+      ),
       subtitle: item.kind == TaskItemKind.reasoning || item.text == body
           ? null
           : Text(item.text, maxLines: 2, overflow: TextOverflow.ellipsis),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (item.status != null) _StatusBadge(status: item.status!),
-          if (expandable) const Icon(Icons.expand_more),
-        ],
-      ),
       initiallyExpanded: !expandable,
-      showTrailingIcon: false,
+      showTrailingIcon: expandable,
       childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
       children: [
         Align(
