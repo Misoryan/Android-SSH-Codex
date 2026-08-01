@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('memory store remembers and clears explicit reconnect intent', () async {
     final store = MemoryProfileStore();
-    const profile = HostProfile(
+    final profile = HostProfile(
       id: 'pi',
       label: 'Pi',
       hostName: 'pi.example.test',
@@ -24,7 +24,7 @@ void main() {
 
   test('deleting the remembered profile clears reconnect intent', () async {
     final store = MemoryProfileStore();
-    const profile = HostProfile(
+    final profile = HostProfile(
       id: 'pi',
       label: 'Pi',
       hostName: 'pi.example.test',

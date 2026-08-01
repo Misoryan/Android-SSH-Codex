@@ -13,7 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('auto-connect selection only accepts the remembered profile', () {
-    const profiles = [
+    final profiles = [
       HostProfile(
         id: 'pi',
         label: 'Pi',

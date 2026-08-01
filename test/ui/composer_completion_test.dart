@@ -27,14 +27,14 @@ void main() {
   });
 
   test('dollar completion filters enabled remote skills', () {
-    final results = composerCompletions('Use $sys', 8, skills);
+    final results = composerCompletions(r'Use $sys', 8, skills);
 
-    expect(results.single.value, '$systematic-debugging');
+    expect(results.single.value, r'$systematic-debugging');
     expect(results.single.kind, ComposerCompletionKind.skill);
   });
 
   test('selection removes only the active completion token', () {
-    final edit = removeActiveCompletionToken('Please use $open', 16);
+    final edit = removeActiveCompletionToken(r'Please use $open', 16);
 
     expect(edit.text, 'Please use ');
     expect(edit.cursor, 11);
