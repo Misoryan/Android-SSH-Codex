@@ -54,10 +54,10 @@ class _ActivityCard extends StatelessWidget {
     final detail = item.detail?.trim();
     final body =
         item.kind == TaskItemKind.reasoning && detail?.isNotEmpty == true
-        ? '${item.text.trim()}\n\n$detail'
-        : detail?.isNotEmpty == true
-            ? detail!
-            : item.text.trim();
+            ? '${item.text.trim()}\n\n$detail'
+            : detail?.isNotEmpty == true
+                ? detail!
+                : item.text.trim();
     final tile = ExpansionTile(
       leading: Icon(_icon, size: 20, color: _color(context)),
       title: Row(

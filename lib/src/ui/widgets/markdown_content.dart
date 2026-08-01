@@ -16,8 +16,14 @@ class MarkdownContent extends StatelessWidget {
       data: text,
       selectable: true,
       extensionSet: md.ExtensionSet(
-        [FormulaBlockSyntax(), ...md.ExtensionSet.gitHubFlavored.blockSyntaxes],
-        [FormulaInlineSyntax(), ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes],
+        [
+          FormulaBlockSyntax(),
+          ...md.ExtensionSet.gitHubFlavored.blockSyntaxes,
+        ],
+        [
+          FormulaInlineSyntax(),
+          ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+        ],
       ),
       builders: {
         'latex': FormulaElementBuilder(textStyle: theme.textTheme.bodyMedium),
