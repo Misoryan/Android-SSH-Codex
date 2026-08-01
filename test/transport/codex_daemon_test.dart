@@ -70,6 +70,30 @@ void main() {
     expect(first, matches(RegExp(r'^[0-9a-f]{64}$')));
   });
 
+  test('proxy command runs Codex through the POSIX shell wrapper', () {
+    final command = CodexDaemon.proxyCommand(
+      '/home/codex/.cache/android-ssh-codex/app-server.sock',
+    );
+
+    expect(
+      _decodeShellWrapper(command),
+      "exec codex app-server proxy --sock "
+      "'/home/codex/.cache/android-ssh-codex/app-server.sock'",
+    );
+  });
+
+  test(
+    'proxy command safely quotes a socket path containing an apostrophe',
+    () {
+      final command = CodexDaemon.proxyCommand("/home/cod'ex/app.sock");
+
+      expect(
+        _decodeShellWrapper(command),
+        "exec codex app-server proxy --sock '/home/cod'\"'\"'ex/app.sock'",
+      );
+    },
+  );
+
   test('bootstrap omits an empty environment from the SSH request', () async {
     Map<String, String>? receivedEnvironment = const {'unexpected': 'value'};
 
@@ -320,3 +344,11 @@ SshCommandResult _result({
       exitCode: exitCode,
       exitSignal: exitSignal,
     );
+
+String _decodeShellWrapper(String command) {
+  final match = RegExp(
+    r"^printf '%s' '([A-Za-z0-9+/=]+)' \| base64 -d \| /bin/sh$",
+  ).firstMatch(command);
+  expect(match, isNotNull);
+  return utf8.decode(base64Decode(match!.group(1)!));
+}

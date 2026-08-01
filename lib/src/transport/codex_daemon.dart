@@ -46,10 +46,20 @@ final class CodexDaemon {
       "environment_fingerprint='${environmentFingerprint(environment)}'\n"
       '$bootstrapScript';
 
-  static String bootstrapCommand(Map<String, String> environment) {
-    final payload = base64Encode(utf8.encode(_bootstrapPayload(environment)));
+  static String _shellCommand(String script) {
+    final payload = base64Encode(utf8.encode(script));
     return "printf '%s' '$payload' | base64 -d | /bin/sh";
   }
+
+  static String bootstrapCommand(Map<String, String> environment) =>
+      _shellCommand(_bootstrapPayload(environment));
+
+  static String proxyCommand(String socketPath) => _shellCommand(
+        'exec codex app-server proxy --sock ${_shellQuote(socketPath)}',
+      );
+
+  static String _shellQuote(String value) =>
+      "'${value.replaceAll("'", "'\"'\"'")}'";
 
   static Future<String> bootstrap(
     SshCommandRunner run, {

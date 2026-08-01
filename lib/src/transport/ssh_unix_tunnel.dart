@@ -1,51 +1,97 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/foundation.dart';
 
-const _sshChannelOpenConnectFailed = 2;
+import 'codex_daemon.dart';
 
-Future<T> openUnixChannelWithRetry<T>(
-  Future<T> Function() open, {
-  int maxAttempts = 50,
-  Duration retryDelay = const Duration(milliseconds: 100),
-  Future<void> Function(Duration) wait = Future<void>.delayed,
-}) async {
-  assert(maxAttempts > 0);
-  for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await open();
-    } on SSHChannelOpenError catch (error) {
-      if (error.code != _sshChannelOpenConnectFailed ||
-          attempt == maxAttempts) {
-        rethrow;
-      }
-      await wait(retryDelay);
-    }
-  }
-  throw StateError('Remote Unix socket retry loop ended unexpectedly.');
+abstract interface class SshProxyChannel {
+  Stream<Uint8List> get stdout;
+  Stream<Uint8List> get stderr;
+  StreamSink<Uint8List> get stdin;
+  Future<void> get done;
+  int? get exitCode;
+  String? get exitSignal;
+  void close();
+}
+
+typedef SshProxyOpener = Future<SshProxyChannel> Function();
+
+final class CodexProxyException implements Exception {
+  const CodexProxyException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+final class _SshSessionProxyChannel implements SshProxyChannel {
+  const _SshSessionProxyChannel(this._session);
+
+  final SSHSession _session;
+
+  @override
+  Stream<Uint8List> get stdout => _session.stdout;
+
+  @override
+  Stream<Uint8List> get stderr => _session.stderr;
+
+  @override
+  StreamSink<Uint8List> get stdin => _session.stdin;
+
+  @override
+  Future<void> get done => _session.done;
+
+  @override
+  int? get exitCode => _session.exitCode;
+
+  @override
+  String? get exitSignal => _session.exitSignal?.signalName;
+
+  @override
+  void close() => _session.close();
 }
 
 final class SshUnixTunnel {
-  SshUnixTunnel._(this._client, this.remoteSocketPath, this._server);
+  SshUnixTunnel._(this.remoteSocketPath, this._server, this._openProxy);
 
-  final SSHClient _client;
   final String remoteSocketPath;
   final ServerSocket _server;
+  final SshProxyOpener _openProxy;
   final Set<Socket> _sockets = {};
-  final Set<SSHForwardChannel> _channels = {};
+  final Set<SshProxyChannel> _channels = {};
+  final Completer<void> _firstFailure = Completer<void>();
   StreamSubscription<Socket>? _subscription;
   var _closed = false;
 
   int get localPort => _server.port;
+  Future<void> get firstFailure => _firstFailure.future;
 
   static Future<SshUnixTunnel> start(
     SSHClient client,
+    String remoteSocketPath, {
+    Map<String, String> environment = const {},
+  }) =>
+      startWithOpener(
+        remoteSocketPath,
+        () async {
+          final session = await client.execute(
+            CodexDaemon.proxyCommand(remoteSocketPath),
+            environment: environment.isEmpty ? null : environment,
+          );
+          return _SshSessionProxyChannel(session);
+        },
+      );
+
+  static Future<SshUnixTunnel> startWithOpener(
     String remoteSocketPath,
+    SshProxyOpener openProxy,
   ) async {
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final tunnel = SshUnixTunnel._(client, remoteSocketPath, server);
+    final tunnel = SshUnixTunnel._(remoteSocketPath, server, openProxy);
     tunnel._subscription = server.listen((socket) {
       unawaited(tunnel._bridge(socket));
     });
@@ -58,39 +104,85 @@ final class SshUnixTunnel {
       return;
     }
     _sockets.add(socket);
-    SSHForwardChannel? channel;
-    StreamSubscription<List<int>>? toRemote;
-    StreamSubscription<List<int>>? toLocal;
+    SshProxyChannel? channel;
+    StreamSubscription<Uint8List>? toRemote;
+    StreamSubscription<Uint8List>? toLocal;
+    StreamSubscription<Uint8List>? stderrSubscription;
     try {
-      final openedChannel = await openUnixChannelWithRetry<SSHForwardChannel>(
-        () => _client.forwardLocalUnix(remoteSocketPath),
-      );
-      channel = openedChannel;
-      _channels.add(openedChannel);
-      toRemote = socket.listen(
-        openedChannel.sink.add,
-        onDone: openedChannel.sink.close,
-        onError: (_) => channel?.destroy(),
+      channel = await _openProxy();
+      if (_closed) return;
+      _channels.add(channel);
+
+      const diagnosticLimit = 1200;
+      final stderr = <int>[];
+      final stderrDone = Completer<void>();
+      void completeStderr() {
+        if (!stderrDone.isCompleted) stderrDone.complete();
+      }
+
+      stderrSubscription = channel.stderr.listen(
+        (chunk) {
+          final remaining = diagnosticLimit - stderr.length;
+          if (remaining > 0) stderr.addAll(chunk.take(remaining));
+        },
+        onDone: completeStderr,
+        onError: (_, __) => completeStderr(),
         cancelOnError: true,
       );
-      toLocal = openedChannel.stream.cast<List<int>>().listen(
-            socket.add,
-            onDone: socket.close,
-            onError: (_) => socket.destroy(),
-            cancelOnError: true,
-          );
-      await Future.any([
-        toRemote.asFuture<void>(),
-        toLocal.asFuture<void>(),
+
+      final localDone = Completer<void>();
+      final remoteDone = Completer<void>();
+      toRemote = socket.listen(
+        channel.stdin.add,
+        onDone: localDone.complete,
+        onError: (_, __) => localDone.complete(),
+        cancelOnError: true,
+      );
+      toLocal = channel.stdout.listen(
+        socket.add,
+        onDone: remoteDone.complete,
+        onError: remoteDone.completeError,
+        cancelOnError: true,
+      );
+      unawaited(
+        channel.done.then(
+          (_) {
+            if (!remoteDone.isCompleted) remoteDone.complete();
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (!remoteDone.isCompleted) {
+              remoteDone.completeError(error, stackTrace);
+            }
+          },
+        ),
+      );
+
+      final endedRemotely = await Future.any<bool>([
+        localDone.future.then((_) => false),
+        remoteDone.future.then((_) => true),
       ]);
+      if (endedRemotely) {
+        await channel.done;
+        await stderrDone.future;
+        throw _proxyClosedException(channel, stderr);
+      }
     } catch (error, stackTrace) {
       debugPrint('Remote Codex Unix tunnel failed: $error');
       debugPrintStack(stackTrace: stackTrace);
+      if (!_closed && !_firstFailure.isCompleted) {
+        _firstFailure.completeError(error, stackTrace);
+      }
     } finally {
       await toRemote?.cancel();
       await toLocal?.cancel();
+      await stderrSubscription?.cancel();
+      try {
+        await channel?.stdin.close();
+      } catch (_) {
+        // The remote process may have already closed the SSH channel.
+      }
       socket.destroy();
-      channel?.destroy();
+      channel?.close();
       _sockets.remove(socket);
       if (channel != null) _channels.remove(channel);
     }
@@ -105,9 +197,28 @@ final class SshUnixTunnel {
       socket.destroy();
     }
     for (final channel in _channels.toList()) {
-      channel.destroy();
+      channel.close();
     }
     _sockets.clear();
     _channels.clear();
   }
+}
+
+CodexProxyException _proxyClosedException(
+  SshProxyChannel channel,
+  List<int> stderr,
+) {
+  final metadata = <String>[
+    if (channel.exitCode != null) 'exit code ${channel.exitCode}',
+    if (channel.exitSignal != null) 'signal ${channel.exitSignal}',
+  ];
+  final diagnostic = utf8.decode(stderr, allowMalformed: true).trim();
+  final suffix = <String>[
+    if (metadata.isNotEmpty) metadata.join(' and '),
+    if (diagnostic.isNotEmpty) diagnostic,
+  ];
+  return CodexProxyException(
+    'Remote Codex proxy closed before the local RPC connection was ready.'
+    '${suffix.isEmpty ? '' : ' ${suffix.join(': ')}'}',
+  );
 }
