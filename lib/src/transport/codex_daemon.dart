@@ -53,7 +53,8 @@ final class CodexDaemon {
 
   static String _shellCommandPreservingStdin(String script) {
     final payload = base64Encode(utf8.encode(script));
-    return "/bin/sh -c 'exec /bin/sh -c \"\$(printf %s $payload | base64 -d)\"'";
+    return "/bin/sh -c 'exec /bin/sh -c "
+        "\"\$(printf %s $payload | base64 -d)\"'";
   }
 
   static String bootstrapCommand(Map<String, String> environment) =>
