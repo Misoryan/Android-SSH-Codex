@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../projects/remote_project.dart';
 import 'host_profile.dart';
 import 'secure_key_value_store.dart';
 
@@ -12,6 +13,9 @@ abstract interface class ProfileStore {
   Future<void> writeHostFingerprint(String profileId, String fingerprint);
   Future<Set<String>> readOwnedThreads(String profileId);
   Future<void> writeOwnedThreads(String profileId, Set<String> threadIds);
+  Future<List<RemoteProject>> readProjects(String hostId);
+  Future<void> writeProject(RemoteProject project);
+  Future<void> deleteProject(String hostId, String projectId);
 }
 
 final class SecureProfileStore implements ProfileStore {
@@ -62,6 +66,7 @@ final class SecureProfileStore implements ProfileStore {
     await _storage.delete(key: 'secret.$id');
     await _storage.delete(key: 'fingerprint.$id');
     await _storage.delete(key: 'owned.$id');
+    await _storage.delete(key: 'projects.$id');
   }
 
   @override
@@ -98,6 +103,52 @@ final class SecureProfileStore implements ProfileStore {
   ) =>
       _storage.write(
           key: 'owned.$profileId', value: jsonEncode(threadIds.toList()));
+
+  @override
+  Future<List<RemoteProject>> readProjects(String hostId) async {
+    final value = await _storage.read(key: 'projects.$hostId');
+    if (value == null || value.isEmpty) return [];
+    final projects = (jsonDecode(value) as List<dynamic>)
+        .map((item) =>
+            RemoteProject.fromJson((item as Map).cast<String, dynamic>()))
+        .where((project) => project.hostId == hostId)
+        .toList(growable: false);
+    return _sortProjects(projects);
+  }
+
+  @override
+  Future<void> writeProject(RemoteProject project) async {
+    final projects = (await readProjects(project.hostId)).toList();
+    final index = projects.indexWhere((item) => item.id == project.id);
+    if (index == -1) {
+      projects.add(project);
+    } else {
+      projects[index] = project;
+    }
+    await _writeProjects(project.hostId, projects);
+  }
+
+  @override
+  Future<void> deleteProject(String hostId, String projectId) async {
+    final projects = (await readProjects(hostId))
+        .where((project) => project.id != projectId)
+        .toList(growable: false);
+    await _writeProjects(hostId, projects);
+  }
+
+  Future<void> _writeProjects(
+    String hostId,
+    List<RemoteProject> projects,
+  ) async {
+    if (projects.isEmpty) {
+      await _storage.delete(key: 'projects.$hostId');
+      return;
+    }
+    await _storage.write(
+      key: 'projects.$hostId',
+      value: jsonEncode(projects.map((project) => project.toJson()).toList()),
+    );
+  }
 }
 
 final class MemoryProfileStore implements ProfileStore {
@@ -105,6 +156,7 @@ final class MemoryProfileStore implements ProfileStore {
   final Map<String, HostSecret> _secrets = {};
   final Map<String, String> _fingerprints = {};
   final Map<String, Set<String>> _owned = {};
+  final Map<String, Map<String, RemoteProject>> _projects = {};
 
   @override
   Future<List<HostProfile>> readProfiles() async =>
@@ -122,6 +174,7 @@ final class MemoryProfileStore implements ProfileStore {
     _secrets.remove(id);
     _fingerprints.remove(id);
     _owned.remove(id);
+    _projects.remove(id);
   }
 
   @override
@@ -151,4 +204,28 @@ final class MemoryProfileStore implements ProfileStore {
   ) async {
     _owned[profileId] = Set<String>.of(threadIds);
   }
+
+  @override
+  Future<List<RemoteProject>> readProjects(String hostId) async =>
+      _sortProjects(_projects[hostId]?.values ?? const <RemoteProject>[]);
+
+  @override
+  Future<void> writeProject(RemoteProject project) async {
+    _projects.putIfAbsent(project.hostId, () => {})[project.id] = project;
+  }
+
+  @override
+  Future<void> deleteProject(String hostId, String projectId) async {
+    _projects[hostId]?.remove(projectId);
+    if (_projects[hostId]?.isEmpty ?? false) _projects.remove(hostId);
+  }
+}
+
+List<RemoteProject> _sortProjects(Iterable<RemoteProject> projects) {
+  final sorted = projects.toList(growable: false);
+  sorted.sort(
+    (first, second) =>
+        first.name.toLowerCase().compareTo(second.name.toLowerCase()),
+  );
+  return List.unmodifiable(sorted);
 }

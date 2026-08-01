@@ -10,6 +10,41 @@ final class RemoteTaskBatch {
   final Set<String> loadedThreadIds;
 }
 
+final class RemoteTaskPage {
+  const RemoteTaskPage({required this.tasks, required this.nextCursor});
+
+  final List<TaskSnapshot> tasks;
+  final String? nextCursor;
+}
+
+final class RemoteSkill {
+  const RemoteSkill({
+    required this.name,
+    required this.description,
+    required this.path,
+  });
+
+  final String name;
+  final String description;
+  final String path;
+}
+
+final class RemoteThreadGoal {
+  const RemoteThreadGoal({
+    required this.objective,
+    required this.status,
+    required this.tokenBudget,
+    required this.tokensUsed,
+    required this.timeUsedSeconds,
+  });
+
+  final String objective;
+  final String status;
+  final int? tokenBudget;
+  final int tokensUsed;
+  final int timeUsedSeconds;
+}
+
 final class PendingApproval {
   const PendingApproval({
     required this.requestId,
@@ -51,21 +86,30 @@ final class CodexRemoteApi {
   }
 
   Future<RemoteTaskBatch> readTaskBatch() async {
-    final threads = <TaskSnapshot>[];
-    String? cursor;
-    do {
-      final result = _map(await _rpc.request('thread/list', {
-        'limit': 100,
-        'archived': false,
-        if (cursor != null) 'cursor': cursor,
-      }));
-      final data = result['data'] as List<dynamic>? ?? const [];
-      threads.addAll(
-        data.map((item) => parseThread(_map(item))),
-      );
-      cursor = result['nextCursor'] as String?;
-    } while (cursor != null && cursor.isNotEmpty);
+    final page = await readTaskPage();
+    final loaded = await readLoadedThreadIds();
+    return RemoteTaskBatch(tasks: page.tasks, loadedThreadIds: loaded);
+  }
 
+  Future<RemoteTaskPage> readTaskPage({String? cwd, String? cursor}) async {
+    final result = _map(await _rpc.request('thread/list', {
+      'limit': 20,
+      'archived': false,
+      'sortKey': 'recency_at',
+      'sortDirection': 'desc',
+      if (cwd != null) 'cwd': cwd,
+      if (cursor != null) 'cursor': cursor,
+    }));
+    final data = result['data'] as List<dynamic>? ?? const [];
+    return RemoteTaskPage(
+      tasks: List.unmodifiable(
+        data.map((item) => parseThread(_map(item))),
+      ),
+      nextCursor: result['nextCursor'] as String?,
+    );
+  }
+
+  Future<Set<String>> readLoadedThreadIds() async {
     final loadedResult = _map(
       await _rpc.request('thread/loaded/list', const {}),
     );
@@ -76,7 +120,7 @@ final class CodexRemoteApi {
             .whereType<String>()
             .toSet()
         : <String>{};
-    return RemoteTaskBatch(tasks: threads, loadedThreadIds: loaded);
+    return loaded;
   }
 
   Future<TaskSnapshot> readThread(String threadId) async {
@@ -98,13 +142,81 @@ final class CodexRemoteApi {
     await _rpc.request('thread/resume', {'threadId': threadId});
   }
 
-  Future<void> startTurn(String threadId, String text) async {
+  Future<void> startTurn(
+    String threadId,
+    String text, {
+    RemoteSkill? skill,
+  }) async {
     await _rpc.request('turn/start', {
       'threadId': threadId,
       'input': [
         {'type': 'text', 'text': text},
+        if (skill != null)
+          {
+            'type': 'skill',
+            'name': skill.name,
+            'path': skill.path,
+          },
       ],
     });
+  }
+
+  Future<List<RemoteSkill>> listSkills(String cwd) async {
+    final result = _map(await _rpc.request('skills/list', {
+      'cwds': [cwd],
+    }));
+    final skills = <RemoteSkill>[];
+    for (final rawGroup in result['data'] as List<dynamic>? ?? const []) {
+      final group = _map(rawGroup);
+      for (final rawSkill in group['skills'] as List<dynamic>? ?? const []) {
+        final skill = _map(rawSkill);
+        final name = skill['name'] as String?;
+        final path = skill['path'] as String?;
+        if (name == null ||
+            name.isEmpty ||
+            path == null ||
+            path.isEmpty ||
+            skill['enabled'] == false) {
+          continue;
+        }
+        skills.add(RemoteSkill(
+          name: name,
+          description: skill['description'] as String? ?? '',
+          path: path,
+        ));
+      }
+    }
+    skills.sort((first, second) => first.name.compareTo(second.name));
+    return List.unmodifiable(skills);
+  }
+
+  Future<RemoteThreadGoal?> readThreadGoal(String threadId) async {
+    final result = _map(await _rpc.request('thread/goal/get', {
+      'threadId': threadId,
+    }));
+    return _parseGoal(result['goal']);
+  }
+
+  Future<RemoteThreadGoal> setThreadGoal(
+    String threadId, {
+    required String objective,
+    int? tokenBudget,
+  }) async {
+    final result = _map(await _rpc.request('thread/goal/set', {
+      'threadId': threadId,
+      'objective': objective,
+      'status': 'active',
+      if (tokenBudget != null) 'tokenBudget': tokenBudget,
+    }));
+    return _parseGoal(result['goal'])!;
+  }
+
+  Future<void> clearThreadGoal(String threadId) async {
+    await _rpc.request('thread/goal/clear', {'threadId': threadId});
+  }
+
+  Future<void> compactThread(String threadId) async {
+    await _rpc.request('thread/compact/start', {'threadId': threadId});
   }
 
   Future<void> interruptTurn(String threadId, String turnId) async {
@@ -204,6 +316,20 @@ final class CodexRemoteApi {
       availableDecisions: decisions,
     );
   }
+}
+
+RemoteThreadGoal? _parseGoal(Object? raw) {
+  final goal = _map(raw);
+  if (goal.isEmpty) return null;
+  final objective = goal['objective'] as String?;
+  if (objective == null || objective.isEmpty) return null;
+  return RemoteThreadGoal(
+    objective: objective,
+    status: goal['status'] as String? ?? 'active',
+    tokenBudget: (goal['tokenBudget'] as num?)?.toInt(),
+    tokensUsed: (goal['tokensUsed'] as num?)?.toInt() ?? 0,
+    timeUsedSeconds: (goal['timeUsedSeconds'] as num?)?.toInt() ?? 0,
+  );
 }
 
 TaskItem _parseItem(Map<String, dynamic> item) {

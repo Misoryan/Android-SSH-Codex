@@ -94,6 +94,40 @@ void main() {
     expect(reducer.state.tasks['one']?.items.single.text, 'Full history');
   });
 
+  test('detail hydration updates one task without dropping list siblings', () {
+    final epoch = reducer.beginConnection();
+    final token = reducer.beginRefresh(epoch);
+    reducer.applyRefresh(token, [snapshot('one'), snapshot('two')], const {});
+
+    reducer.applySnapshot(
+      epoch,
+      snapshot('one', text: 'Full history'),
+      const {},
+    );
+
+    expect(reducer.state.tasks.keys, containsAll(['one', 'two']));
+    expect(reducer.state.tasks['one']?.items.single.text, 'Full history');
+  });
+
+  test(
+    'a head refresh can retain tasks from explicitly loaded older pages',
+    () {
+      final epoch = reducer.beginConnection();
+      final first = reducer.beginRefresh(epoch);
+      reducer.applyRefresh(first, [snapshot('older')], const {});
+
+      final head = reducer.beginRefresh(epoch);
+      reducer.applyRefresh(
+        head,
+        [snapshot('newer')],
+        const {},
+        retainExisting: true,
+      );
+
+      expect(reducer.state.tasks.keys, containsAll(['newer', 'older']));
+    },
+  );
+
   test('marks an active task loaded elsewhere as read-only', () {
     final epoch = reducer.beginConnection();
     final token = reducer.beginRefresh(epoch);

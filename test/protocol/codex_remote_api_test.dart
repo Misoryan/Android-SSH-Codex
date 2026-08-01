@@ -24,30 +24,89 @@ final class _RecordingTransport implements RpcTransport {
 }
 
 void main() {
+  test('reads exactly one recent 20-item task page', () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    try {
+      final page = CodexRemoteApi(rpc).readTaskPage();
+      final listRequest =
+          jsonDecode(transport.sent.single) as Map<String, dynamic>;
+      expect(listRequest, {
+        'method': 'thread/list',
+        'id': 1,
+        'params': {
+          'limit': 20,
+          'archived': false,
+          'sortKey': 'recency_at',
+          'sortDirection': 'desc',
+        },
+      });
+      transport.incoming.add(jsonEncode({
+        'id': listRequest['id'],
+        'result': {
+          'data': [],
+          'nextCursor': 'next-page',
+        },
+      }));
+
+      final result = await page;
+      await pumpEventQueue();
+
+      expect(result.tasks, isEmpty);
+      expect(result.nextCursor, 'next-page');
+      expect(transport.sent, hasLength(1));
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  test('project continuation adds cwd and the opaque cursor', () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    try {
+      final page = CodexRemoteApi(rpc).readTaskPage(
+        cwd: '/srv/mobile',
+        cursor: 'opaque-cursor',
+      );
+      final request = jsonDecode(transport.sent.single) as Map<String, dynamic>;
+
+      expect(request['params'], {
+        'limit': 20,
+        'archived': false,
+        'sortKey': 'recency_at',
+        'sortDirection': 'desc',
+        'cwd': '/srv/mobile',
+        'cursor': 'opaque-cursor',
+      });
+      transport.incoming.add(jsonEncode({
+        'id': request['id'],
+        'result': {'data': []},
+      }));
+
+      await page;
+      expect(transport.sent, hasLength(1));
+    } finally {
+      await rpc.close();
+    }
+  });
+
   test('loaded thread list sends an explicit empty params object', () async {
     final transport = _RecordingTransport();
     final rpc = JsonRpcClient(transport)..start();
     try {
-      final batch = CodexRemoteApi(rpc).readTaskBatch();
-      final listRequest =
-          jsonDecode(transport.sent.single) as Map<String, dynamic>;
-      transport.incoming.add(jsonEncode({
-        'id': listRequest['id'],
-        'result': {'data': []},
-      }));
-      await pumpEventQueue();
+      final loaded = CodexRemoteApi(rpc).readLoadedThreadIds();
 
       final loadedRequest =
-          jsonDecode(transport.sent[1]) as Map<String, dynamic>;
+          jsonDecode(transport.sent.single) as Map<String, dynamic>;
       transport.incoming.add(jsonEncode({
         'id': loadedRequest['id'],
         'result': {'data': []},
       }));
-      await batch;
+      await loaded;
 
       expect(loadedRequest, {
         'method': 'thread/loaded/list',
-        'id': 2,
+        'id': 1,
         'params': <String, dynamic>{},
       });
     } finally {
@@ -79,6 +138,173 @@ void main() {
       TaskItemKind.user,
       TaskItemKind.agent,
     ]);
+  });
+
+  test('lists enabled skills for one stable cwd', () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    try {
+      final skills = CodexRemoteApi(rpc).listSkills('/srv/mobile');
+      final request = jsonDecode(transport.sent.single) as Map<String, dynamic>;
+
+      expect(request['method'], 'skills/list');
+      expect(request['params'], {
+        'cwds': ['/srv/mobile'],
+      });
+      transport.incoming.add(jsonEncode({
+        'id': request['id'],
+        'result': {
+          'data': [
+            {
+              'cwd': '/srv/mobile',
+              'skills': [
+                {
+                  'name': 'release',
+                  'description': 'Prepare a release',
+                  'path': '/home/pi/.codex/skills/release/SKILL.md',
+                  'enabled': true,
+                },
+                {
+                  'name': 'disabled',
+                  'description': 'Disabled',
+                  'path': '/tmp/disabled/SKILL.md',
+                  'enabled': false,
+                },
+              ],
+              'errors': [],
+            },
+          ],
+        },
+      }));
+
+      final result = await skills;
+      expect(result.map((skill) => skill.name), ['release']);
+      expect(result.single.path, endsWith('/release/SKILL.md'));
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  test('starts a turn with a structured skill input', () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    try {
+      final turn = CodexRemoteApi(rpc).startTurn(
+        'thr_1',
+        r'$release Prepare version 2',
+        skill: const RemoteSkill(
+          name: 'release',
+          description: 'Prepare a release',
+          path: '/home/pi/.codex/skills/release/SKILL.md',
+        ),
+      );
+      final request = jsonDecode(transport.sent.single) as Map<String, dynamic>;
+
+      expect(request['params'], {
+        'threadId': 'thr_1',
+        'input': [
+          {'type': 'text', 'text': r'$release Prepare version 2'},
+          {
+            'type': 'skill',
+            'name': 'release',
+            'path': '/home/pi/.codex/skills/release/SKILL.md',
+          },
+        ],
+      });
+      transport.incoming.add(jsonEncode({
+        'id': request['id'],
+        'result': {'turn': {}},
+      }));
+      await turn;
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  test('sets and reads the persisted thread goal', () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    final api = CodexRemoteApi(rpc);
+    try {
+      final setting = api.setThreadGoal(
+        'thr_1',
+        objective: 'Finish the migration',
+        tokenBudget: 40000,
+      );
+      final setRequest =
+          jsonDecode(transport.sent.single) as Map<String, dynamic>;
+      expect(setRequest['params'], {
+        'threadId': 'thr_1',
+        'objective': 'Finish the migration',
+        'status': 'active',
+        'tokenBudget': 40000,
+      });
+      transport.incoming.add(jsonEncode({
+        'id': setRequest['id'],
+        'result': {
+          'goal': {
+            'threadId': 'thr_1',
+            'objective': 'Finish the migration',
+            'status': 'active',
+            'tokenBudget': 40000,
+            'tokensUsed': 12,
+            'timeUsedSeconds': 3,
+          },
+        },
+      }));
+      final goal = await setting;
+
+      expect(goal.objective, 'Finish the migration');
+      expect(goal.tokensUsed, 12);
+
+      final reading = api.readThreadGoal('thr_1');
+      final getRequest = jsonDecode(transport.sent[1]) as Map<String, dynamic>;
+      transport.incoming.add(jsonEncode({
+        'id': getRequest['id'],
+        'result': {'goal': null},
+      }));
+
+      expect(await reading, isNull);
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  test('clears a goal and starts stable context compaction', () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    final api = CodexRemoteApi(rpc);
+    try {
+      final clearing = api.clearThreadGoal('thr_1');
+      final clearRequest =
+          jsonDecode(transport.sent.single) as Map<String, dynamic>;
+      expect(clearRequest, {
+        'method': 'thread/goal/clear',
+        'id': 1,
+        'params': {'threadId': 'thr_1'},
+      });
+      transport.incoming.add(jsonEncode({
+        'id': clearRequest['id'],
+        'result': <String, dynamic>{},
+      }));
+      await clearing;
+
+      final compacting = api.compactThread('thr_1');
+      final compactRequest =
+          jsonDecode(transport.sent[1]) as Map<String, dynamic>;
+      expect(compactRequest, {
+        'method': 'thread/compact/start',
+        'id': 2,
+        'params': {'threadId': 'thr_1'},
+      });
+      transport.incoming.add(jsonEncode({
+        'id': compactRequest['id'],
+        'result': <String, dynamic>{},
+      }));
+      await compacting;
+    } finally {
+      await rpc.close();
+    }
   });
 
   test('preserves unknown items as visible activity instead of dropping them',

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_controller.dart';
+import '../projects/remote_project.dart';
 import '../tasks/task_reducer.dart';
 import 'task_view.dart';
 import 'widgets/connection_badge.dart';
@@ -35,105 +36,44 @@ class TasksWorkspace extends StatelessWidget {
   }
 }
 
-class _TaskList extends StatefulWidget {
+class _TaskList extends StatelessWidget {
   const _TaskList({required this.controller});
 
   final AppController controller;
 
   @override
-  State<_TaskList> createState() => _TaskListState();
-}
-
-class _TaskListState extends State<_TaskList> {
-  final _search = TextEditingController();
-
-  @override
-  void dispose() {
-    _search.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final controller = widget.controller;
-    final query = _search.text.trim().toLowerCase();
-    final tasks = controller.taskState.tasks.values
-        .where((task) =>
-            query.isEmpty ||
-            task.title.toLowerCase().contains(query) ||
-            task.cwd.toLowerCase().contains(query))
-        .toList()
-      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    final canShowTasks = controller.isConnected ||
-        controller.connectionPhase == RemoteConnectionPhase.reconnecting;
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 8, 10),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Tasks',
-                        style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 3),
-                    ConnectionBadge(phase: controller.connectionPhase),
-                  ],
-                ),
-              ),
-              IconButton(
-                tooltip: 'Refresh tasks',
-                onPressed:
-                    controller.isConnected ? controller.refreshTasks : null,
-                icon: const Icon(Icons.refresh),
-              ),
-              IconButton.filled(
-                tooltip: 'New task',
-                onPressed:
-                    controller.isConnected ? () => _newTask(context) : null,
-                icon: const Icon(Icons.add),
-              ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-          child: TextField(
-            controller: _search,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              hintText: 'Search tasks',
-              prefixIcon: Icon(Icons.search),
-            ),
-          ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: !canShowTasks
-              ? const _ConnectPrompt()
-              : tasks.isEmpty
-                  ? const Center(child: Text('No Codex tasks found'))
-                  : RefreshIndicator(
-                      onRefresh: controller.refreshTasks,
-                      child: ListView.builder(
-                        itemCount: tasks.length,
-                        itemBuilder: (_, index) => _TaskRow(
-                          task: tasks[index],
-                          selected:
-                              controller.selectedTaskId == tasks[index].id,
-                          onTap: () => controller.selectTask(tasks[index].id),
-                        ),
-                      ),
-                    ),
-        ),
-      ],
+    return TaskListPane(
+      model: TaskListPaneModel(
+        projects: controller.projects,
+        selectedProjectId: controller.selectedProjectId,
+        selectedTaskId: controller.selectedTaskId,
+        projectTasks: controller.projectTasks,
+        unassignedTasks: controller.unassignedTasks,
+        connected: controller.isConnected,
+        connectionPhase: controller.connectionPhase,
+        unassignedExpanded: controller.unassignedExpanded,
+        hasMoreProjectTasks: controller.hasMoreProjectTasks,
+        hasMoreUnassignedTasks: controller.hasMoreUnassignedTasks,
+        loadingProjectPage: controller.isLoadingProjectPage,
+        loadingUnassignedPage: controller.isLoadingUnassignedPage,
+      ),
+      onRefresh: controller.refreshTasks,
+      onAddProject: () => _editProject(context),
+      onEditProject: () => _editProject(context, controller.selectedProject),
+      onDeleteProject: () => _deleteProject(context),
+      onProjectSelected: controller.selectProject,
+      onNewTask: () => _newTask(context),
+      onTaskSelected: controller.selectTask,
+      onToggleUnassigned: controller.toggleUnassigned,
+      onLoadMoreProjectTasks: controller.loadMoreProjectTasks,
+      onLoadMoreUnassignedTasks: controller.loadMoreUnassignedTasks,
     );
   }
 
   Future<void> _newTask(BuildContext context) async {
-    final cwd = TextEditingController();
+    final project = controller.selectedProject;
+    final cwd = TextEditingController(text: project?.cwd);
     final prompt = TextEditingController();
     final accepted = await showDialog<bool>(
       context: context,
@@ -144,13 +84,21 @@ class _TaskListState extends State<_TaskList> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: cwd,
-                decoration: const InputDecoration(
-                  labelText: 'Remote working directory',
-                  prefixIcon: Icon(Icons.folder_outlined),
+              if (project == null)
+                TextField(
+                  controller: cwd,
+                  decoration: const InputDecoration(
+                    labelText: 'Remote working directory',
+                    prefixIcon: Icon(Icons.folder_outlined),
+                  ),
+                )
+              else
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.folder_outlined),
+                  title: Text(project.name),
+                  subtitle: Text(project.cwd),
                 ),
-              ),
               const SizedBox(height: 12),
               TextField(
                 controller: prompt,
@@ -181,7 +129,7 @@ class _TaskListState extends State<_TaskList> {
     if (accepted == true &&
         cwd.text.trim().isNotEmpty &&
         prompt.text.trim().isNotEmpty) {
-      await widget.controller.startNewTask(
+      await controller.startNewTask(
         cwd: cwd.text.trim(),
         prompt: prompt.text.trim(),
       );
@@ -189,6 +137,414 @@ class _TaskListState extends State<_TaskList> {
     cwd.dispose();
     prompt.dispose();
   }
+
+  Future<void> _editProject(
+    BuildContext context, [
+    RemoteProject? project,
+  ]) async {
+    final name = TextEditingController(text: project?.name);
+    final cwd = TextEditingController(text: project?.cwd);
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(project == null ? 'Add project' : 'Edit project'),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: name,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Project name',
+                  prefixIcon: Icon(Icons.folder_copy_outlined),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: cwd,
+                decoration: const InputDecoration(
+                  labelText: 'Remote working directory',
+                  prefixIcon: Icon(Icons.folder_outlined),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true &&
+        name.text.trim().isNotEmpty &&
+        cwd.text.trim().isNotEmpty) {
+      await controller.saveProject(
+        projectId: project?.id,
+        name: name.text,
+        cwd: cwd.text,
+      );
+    }
+    name.dispose();
+    cwd.dispose();
+  }
+
+  Future<void> _deleteProject(BuildContext context) async {
+    final project = controller.selectedProject;
+    if (project == null) return;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete project?'),
+        content: Text(
+          'Remove ${project.name} from this app? Remote files and tasks are not deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true) await controller.deleteProject(project.id);
+  }
+}
+
+final class TaskListPaneModel {
+  const TaskListPaneModel({
+    required this.projects,
+    required this.selectedProjectId,
+    required this.projectTasks,
+    required this.unassignedTasks,
+    required this.connected,
+    this.selectedTaskId,
+    this.connectionPhase = RemoteConnectionPhase.disconnected,
+    this.unassignedExpanded = false,
+    this.hasMoreProjectTasks = false,
+    this.hasMoreUnassignedTasks = false,
+    this.loadingProjectPage = false,
+    this.loadingUnassignedPage = false,
+  });
+
+  final List<RemoteProject> projects;
+  final String? selectedProjectId;
+  final String? selectedTaskId;
+  final List<TaskRecord> projectTasks;
+  final List<TaskRecord> unassignedTasks;
+  final bool connected;
+  final RemoteConnectionPhase connectionPhase;
+  final bool unassignedExpanded;
+  final bool hasMoreProjectTasks;
+  final bool hasMoreUnassignedTasks;
+  final bool loadingProjectPage;
+  final bool loadingUnassignedPage;
+
+  RemoteProject? get selectedProject {
+    for (final project in projects) {
+      if (project.id == selectedProjectId) return project;
+    }
+    return null;
+  }
+}
+
+class TaskListPane extends StatefulWidget {
+  const TaskListPane({
+    required this.model,
+    this.onRefresh,
+    this.onAddProject,
+    this.onEditProject,
+    this.onDeleteProject,
+    this.onProjectSelected,
+    this.onNewTask,
+    this.onTaskSelected,
+    this.onToggleUnassigned,
+    this.onLoadMoreProjectTasks,
+    this.onLoadMoreUnassignedTasks,
+    super.key,
+  });
+
+  final TaskListPaneModel model;
+  final RefreshCallback? onRefresh;
+  final VoidCallback? onAddProject;
+  final VoidCallback? onEditProject;
+  final VoidCallback? onDeleteProject;
+  final ValueChanged<String?>? onProjectSelected;
+  final VoidCallback? onNewTask;
+  final ValueChanged<String>? onTaskSelected;
+  final VoidCallback? onToggleUnassigned;
+  final VoidCallback? onLoadMoreProjectTasks;
+  final VoidCallback? onLoadMoreUnassignedTasks;
+
+  @override
+  State<TaskListPane> createState() => _TaskListPaneState();
+}
+
+class _TaskListPaneState extends State<TaskListPane> {
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final model = widget.model;
+    final project = model.selectedProject;
+    final projectTasks = _filtered(model.projectTasks);
+    final unassignedTasks = _filtered(model.unassignedTasks);
+    final canShowTasks = model.connected ||
+        model.connectionPhase == RemoteConnectionPhase.reconnecting;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 8, 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Projects',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 3),
+                    ConnectionBadge(phase: model.connectionPhase),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Refresh tasks',
+                onPressed: model.connected ? widget.onRefresh : null,
+                icon: const Icon(Icons.refresh),
+              ),
+              IconButton(
+                tooltip: 'Add project',
+                onPressed: model.connected ? widget.onAddProject : null,
+                icon: const Icon(Icons.create_new_folder_outlined),
+              ),
+              IconButton.filled(
+                tooltip: 'New task',
+                onPressed: model.connected ? widget.onNewTask : null,
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 8, 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  key: ValueKey(project?.id),
+                  initialValue: project?.id,
+                  decoration: const InputDecoration(
+                    labelText: 'Project',
+                    prefixIcon: Icon(Icons.folder_outlined),
+                  ),
+                  hint: const Text('No project selected'),
+                  items: [
+                    for (final item in model.projects)
+                      DropdownMenuItem(value: item.id, child: Text(item.name)),
+                  ],
+                  onChanged: model.connected ? widget.onProjectSelected : null,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Edit project',
+                onPressed: model.connected && project != null
+                    ? widget.onEditProject
+                    : null,
+                icon: const Icon(Icons.edit_outlined),
+              ),
+              IconButton(
+                tooltip: 'Delete project',
+                onPressed: model.connected && project != null
+                    ? widget.onDeleteProject
+                    : null,
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+          child: TextField(
+            controller: _search,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(
+              hintText: 'Search tasks',
+              prefixIcon: Icon(Icons.search),
+            ),
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: !canShowTasks
+              ? const _ConnectPrompt()
+              : RefreshIndicator(
+                  onRefresh: widget.onRefresh ?? () async {},
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      if (project == null)
+                        const _NoProjectSelected()
+                      else ...[
+                        _SectionHeader(
+                          title: project.name,
+                          subtitle: project.cwd,
+                        ),
+                        if (projectTasks.isEmpty)
+                          const _EmptySection(
+                            message: 'No tasks in this project',
+                          )
+                        else
+                          for (final task in projectTasks)
+                            _TaskRow(
+                              task: task,
+                              selected: model.selectedTaskId == task.id,
+                              onTap: () => widget.onTaskSelected?.call(task.id),
+                            ),
+                        if (model.hasMoreProjectTasks ||
+                            model.loadingProjectPage)
+                          _LoadMoreButton(
+                            key: const Key('load-more-project'),
+                            loading: model.loadingProjectPage,
+                            onPressed: widget.onLoadMoreProjectTasks,
+                          ),
+                      ],
+                      const Divider(height: 1),
+                      ExpansionTile(
+                        key: ValueKey(model.unassignedExpanded),
+                        initiallyExpanded: model.unassignedExpanded,
+                        leading: const Icon(Icons.inbox_outlined),
+                        title: const Text('Unassigned'),
+                        subtitle: Text(
+                          '${model.unassignedTasks.length} recent tasks',
+                        ),
+                        onExpansionChanged: (_) =>
+                            widget.onToggleUnassigned?.call(),
+                        children: [
+                          if (unassignedTasks.isEmpty)
+                            const _EmptySection(
+                              message: 'No unassigned tasks in recent history',
+                            )
+                          else
+                            for (final task in unassignedTasks)
+                              _TaskRow(
+                                task: task,
+                                selected: model.selectedTaskId == task.id,
+                                onTap: () =>
+                                    widget.onTaskSelected?.call(task.id),
+                              ),
+                          if (model.hasMoreUnassignedTasks ||
+                              model.loadingUnassignedPage)
+                            _LoadMoreButton(
+                              key: const Key('load-more-unassigned'),
+                              loading: model.loadingUnassignedPage,
+                              onPressed: widget.onLoadMoreUnassignedTasks,
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  List<TaskRecord> _filtered(List<TaskRecord> tasks) {
+    final query = _search.text.trim().toLowerCase();
+    if (query.isEmpty) return tasks;
+    return tasks
+        .where((task) =>
+            task.title.toLowerCase().contains(query) ||
+            task.cwd.toLowerCase().contains(query))
+        .toList(growable: false);
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+        title: Text(title, style: Theme.of(context).textTheme.titleMedium),
+        subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+      );
+}
+
+class _LoadMoreButton extends StatelessWidget {
+  const _LoadMoreButton({
+    required this.loading,
+    required this.onPressed,
+    super.key,
+  });
+
+  final bool loading;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: OutlinedButton(
+          onPressed: loading ? null : onPressed,
+          child: loading
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Load more'),
+        ),
+      );
+}
+
+class _EmptySection extends StatelessWidget {
+  const _EmptySection({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Center(child: Text(message)),
+      );
+}
+
+class _NoProjectSelected extends StatelessWidget {
+  const _NoProjectSelected();
+
+  @override
+  Widget build(BuildContext context) => const Padding(
+        padding: EdgeInsets.all(24),
+        child: Column(
+          children: [
+            Icon(Icons.create_new_folder_outlined, size: 36),
+            SizedBox(height: 10),
+            Text('Add or select a project to organize its tasks.'),
+          ],
+        ),
+      );
 }
 
 class _TaskRow extends StatelessWidget {
