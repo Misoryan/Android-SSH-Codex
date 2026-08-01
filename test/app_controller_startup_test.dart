@@ -5,6 +5,7 @@ import 'package:android_ssh_codex/src/app.dart';
 import 'package:android_ssh_codex/src/app_controller.dart';
 import 'package:android_ssh_codex/src/profiles/host_profile.dart';
 import 'package:android_ssh_codex/src/profiles/profile_store.dart';
+import 'package:android_ssh_codex/src/transport/codex_daemon.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -40,6 +41,40 @@ void main() {
       profiles.complete(const []);
       await initialization;
       expect(initializationCompleted, isTrue);
+    },
+  );
+
+  test(
+    'profile bootstrap applies the selected profile environment',
+    () async {
+      final profile = HostProfile(
+        id: 'raspberry-pi',
+        label: 'Raspberry Pi',
+        hostName: 'pi.example.test',
+        user: 'pi',
+        port: 22,
+        environment: const {
+          'LC_CODEX_BACKEND': 'sub2api',
+          'CODEX_TOKEN': 'secret-value',
+        },
+      );
+      String? receivedCommand;
+      Map<String, String>? receivedEnvironment;
+
+      await bootstrapCodexForProfile(
+        (command, {environment}) async {
+          receivedCommand = command;
+          receivedEnvironment = environment;
+          return const [];
+        },
+        profile,
+      );
+
+      expect(
+        receivedCommand,
+        CodexDaemon.bootstrapCommand(profile.environment),
+      );
+      expect(identical(receivedEnvironment, profile.environment), isTrue);
     },
   );
 }

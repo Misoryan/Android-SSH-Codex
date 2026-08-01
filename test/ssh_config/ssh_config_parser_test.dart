@@ -112,5 +112,236 @@ Host other
       expect(work.proxyJump, isNull);
       expect(work.warnings, contains(contains('Match')));
     });
+
+    test('resolves multiple SetEnv directives and assignments', () {
+      final config = SshConfig.parse('''
+Host single
+  SetEnv ONLY=one
+Host multiple
+  SetEnv FIRST=one SECOND=two
+  SetEnv THIRD=three
+''');
+
+      expect(config.resolve('single').environment, {'ONLY': 'one'});
+      expect(config.resolve('multiple').environment, {
+        'FIRST': 'one',
+        'SECOND': 'two',
+        'THIRD': 'three',
+      });
+    });
+
+    test('preserves quoted spaces and additional equals signs in values', () {
+      final config = SshConfig.parse('''
+Host values
+  SetEnv GREETING="hello world" TOKEN=a=b
+''');
+
+      expect(config.resolve('values').environment, {
+        'GREETING': 'hello world',
+        'TOKEN': 'a=b',
+      });
+    });
+
+    test('uses the first value per variable across matching sections', () {
+      final config = SshConfig.parse('''
+Host *.prod
+  SetEnv BACKEND=first SHARED=from-pattern
+Host api.prod
+  SetEnv BACKEND=later REGION=us-east
+''');
+
+      expect(config.resolve('api.prod').environment, {
+        'BACKEND': 'first',
+        'SHARED': 'from-pattern',
+        'REGION': 'us-east',
+      });
+    });
+
+    test('keeps target values while adding later Host star defaults', () {
+      final config = SshConfig.parse('''
+Host target
+  SetEnv TARGET=target-value
+Host *
+  SetEnv TARGET=fallback-value GLOBAL=global-value
+''');
+
+      final host = config.resolve('target');
+
+      expect(host.environment, {
+        'TARGET': 'target-value',
+        'GLOBAL': 'global-value',
+      });
+      expect(host.warnings, hasLength(1));
+      expect(host.warnings.single, contains('TARGET'));
+      expect(host.warnings.single, isNot(contains('target-value')));
+      expect(host.warnings.single, isNot(contains('fallback-value')));
+      expect(host.warnings.single, isNot(contains('global-value')));
+    });
+
+    test('warns safely about conflicting duplicate values', () {
+      final config = SshConfig.parse('''
+Host duplicate
+  SetEnv TOKEN=first-secret
+  SetEnv TOKEN=second-secret
+''');
+
+      final host = config.resolve('duplicate');
+
+      expect(host.environment, {'TOKEN': 'first-secret'});
+      expect(host.warnings, hasLength(1));
+      expect(host.warnings.single, contains('TOKEN'));
+      expect(host.warnings.single, isNot(contains('first-secret')));
+      expect(host.warnings.single, isNot(contains('second-secret')));
+    });
+
+    test('omits invalid assignments while preserving valid assignments', () {
+      final config = SshConfig.parse('''
+Host partial
+  SetEnv GOOD=good-secret INVALID-NAME=invalid-secret ALSO=also-secret
+''');
+
+      final host = config.resolve('partial');
+
+      expect(host.environment, {
+        'GOOD': 'good-secret',
+        'ALSO': 'also-secret',
+      });
+      expect(host.warnings, hasLength(1));
+      expect(host.warnings.single, contains('SetEnv'));
+      expect(host.warnings.single, isNot(contains('good-secret')));
+      expect(host.warnings.single, isNot(contains('invalid-secret')));
+      expect(host.warnings.single, isNot(contains('also-secret')));
+    });
+
+    test('names safe invalid assignments without exposing values', () {
+      final config = SshConfig.parse('''
+Host missing-equals
+  SetEnv SAFE_NAME
+''');
+
+      final host = config.resolve('missing-equals');
+
+      expect(host.environment, isEmpty);
+      expect(host.warnings, ['Invalid SetEnv assignment for SAFE_NAME']);
+    });
+
+    test('uses a generic warning for unsafe environment names', () {
+      final config = SshConfig.parse('''
+Host unsafe-name
+  SetEnv INVALID-NAME=value
+''');
+
+      final host = config.resolve('unsafe-name');
+
+      expect(host.environment, isEmpty);
+      expect(host.warnings, ['Invalid SetEnv assignment.']);
+      expect(host.warnings.single, isNot(contains('INVALID-NAME')));
+      expect(host.warnings.single, isNot(contains('value')));
+    });
+
+    test('does not warn when duplicate values are identical', () {
+      final config = SshConfig.parse('''
+Host identical
+  SetEnv TOKEN=same-value
+  SetEnv TOKEN=same-value
+''');
+
+      final host = config.resolve('identical');
+
+      expect(host.environment, {'TOKEN': 'same-value'});
+      expect(host.warnings, isEmpty);
+    });
+
+    test('keeps IPQoS unsupported', () {
+      final config = SshConfig.parse('''
+Host qos
+  IPQoS none
+''');
+
+      expect(
+        config.resolve('qos').warnings,
+        contains('Unsupported SSH directive: IPQoS'),
+      );
+    });
+
+    test('continues to parse equals syntax for existing directives', () {
+      final config = SshConfig.parse('''
+Host=alias
+  HostName=value.example
+  Port=2222
+''');
+
+      final host = config.resolve('alias');
+
+      expect(host.hostName, 'value.example');
+      expect(host.port, 2222);
+    });
+
+    test('accepts every OpenSSH separator form for scalar directives', () {
+      final config = SshConfig.parse('''
+Host user-space
+  User alice
+Host user-equals
+  User=alice
+Host user-equals-before-space
+  User= alice
+Host user-space-before-equals
+  User =alice
+Host user-spaced-equals
+  User = alice
+''');
+
+      for (final alias in [
+        'user-space',
+        'user-equals',
+        'user-equals-before-space',
+        'user-space-before-equals',
+        'user-spaced-equals',
+      ]) {
+        final host = config.resolve(alias);
+        expect(host.user, 'alice', reason: alias);
+        expect(host.warnings, isEmpty, reason: alias);
+      }
+    });
+
+    test('accepts every OpenSSH separator form for SetEnv', () {
+      final config = SshConfig.parse('''
+Host setenv-space
+  SetEnv FOO=bar
+Host setenv-equals
+  SetEnv=FOO=bar
+Host setenv-equals-before-space
+  SetEnv= FOO=bar
+Host setenv-space-before-equals
+  SetEnv =FOO=bar
+Host setenv-spaced-equals
+  SetEnv = FOO=bar
+''');
+
+      for (final alias in [
+        'setenv-space',
+        'setenv-equals',
+        'setenv-equals-before-space',
+        'setenv-space-before-equals',
+        'setenv-spaced-equals',
+      ]) {
+        final host = config.resolve(alias);
+        expect(host.environment, {'FOO': 'bar'}, reason: alias);
+        expect(host.warnings, isEmpty, reason: alias);
+      }
+    });
+
+    test('exposes an immutable resolved environment', () {
+      final config = SshConfig.parse('''
+Host immutable
+  SetEnv ORIGINAL=value
+''');
+      final environment = config.resolve('immutable').environment;
+
+      expect(
+        () => environment['ADDED'] = 'value',
+        throwsUnsupportedError,
+      );
+    });
   });
 }

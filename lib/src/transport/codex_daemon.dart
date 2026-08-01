@@ -1,12 +1,58 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+import 'package:dartssh2/dartssh2.dart';
+
+typedef SshCommandRunner = Future<List<int>> Function(
+  String command, {
+  Map<String, String>? environment,
+});
+
 final class CodexDaemon {
   const CodexDaemon._();
+
+  static String environmentFingerprint(Map<String, String> environment) {
+    final names = environment.keys.toList()..sort();
+    final canonical = <String, String>{
+      for (final name in names) name: environment[name]!,
+    };
+    return sha256.convert(utf8.encode(jsonEncode(canonical))).toString();
+  }
+
+  static String bootstrapCommand(Map<String, String> environment) =>
+      "environment_fingerprint='${environmentFingerprint(environment)}'\n"
+      '$bootstrapScript';
+
+  static Future<List<int>> bootstrap(
+    SshCommandRunner run, {
+    required Map<String, String> environment,
+  }) async {
+    try {
+      return await run(
+        bootstrapCommand(environment),
+        environment: environment.isEmpty ? null : environment,
+      );
+    } on SSHChannelRequestError catch (error) {
+      final match = RegExp(
+        r'^Failed to set environment variable: ([A-Za-z_][A-Za-z0-9_]*)$',
+      ).firstMatch(error.message);
+      if (match == null) rethrow;
+      final name = match.group(1)!;
+      throw StateError(
+        'The SSH server rejected SetEnv $name. Allow it with AcceptEnv $name '
+        'in sshd_config, or remove it from this profile.',
+      );
+    }
+  }
 
   static const bootstrapScript = r'''
 set -eu
 umask 077
+: "${environment_fingerprint:?Missing environment fingerprint}"
 base="${XDG_CACHE_HOME:-$HOME/.cache}/android-ssh-codex"
 socket="$base/app-server.sock"
 pidfile="$base/app-server.pid"
+fingerprint_file="$base/environment-fingerprint"
 lock="$base/start.lock"
 log="$base/app-server.log"
 mkdir -p "$base"
@@ -29,17 +75,14 @@ is_our_server_running() {
   esac
 }
 
-if [ -S "$socket" ] && is_our_server_running; then
-  printf '%s\n' "$socket"
-  exit 0
-fi
+environment_fingerprint_matches() {
+  [ -r "$fingerprint_file" ] || return 1
+  current_fingerprint=$(cat "$fingerprint_file" 2>/dev/null || true)
+  [ "$current_fingerprint" = "$environment_fingerprint" ]
+}
 
 count=0
 while ! mkdir "$lock" 2>/dev/null; do
-  if [ -S "$socket" ] && is_our_server_running; then
-    printf '%s\n' "$socket"
-    exit 0
-  fi
   count=$((count + 1))
   if [ "$count" -ge 100 ]; then
     if find "$lock" -type d -mmin +1 -print -quit | grep -q . &&
@@ -53,20 +96,44 @@ while ! mkdir "$lock" 2>/dev/null; do
   sleep 0.1
 done
 trap 'rmdir "$lock" 2>/dev/null || true' EXIT HUP INT TERM
+
+stop_our_server() {
+  printf '%s\n' \
+    'The existing Codex app-server uses a different environment; restarting it.' \
+    >&2
+  kill "$pid" 2>/dev/null || true
+  count=0
+  while is_our_server_running; do
+    count=$((count + 1))
+    if [ "$count" -ge 100 ]; then
+      printf '%s\n' 'Timed out stopping the existing Codex app-server' >&2
+      exit 1
+    fi
+    sleep 0.1
+  done
+}
+
 if is_our_server_running; then
-  if [ -S "$socket" ]; then
+  if [ -S "$socket" ] && environment_fingerprint_matches; then
     printf '%s\n' "$socket"
     exit 0
   fi
-  printf '%s\n' "App-server process is alive but $socket is unavailable; inspect $log" >&2
-  exit 1
+  if environment_fingerprint_matches; then
+    printf '%s\n' "App-server process is alive but $socket is unavailable; inspect $log" >&2
+    exit 1
+  fi
+  stop_our_server
 fi
-rm -f "$socket" "$pidfile"
+rm -f "$socket" "$pidfile" "$fingerprint_file"
 nohup codex app-server --listen "unix://$socket" </dev/null >>"$log" 2>&1 &
 printf '%s\n' "$!" >"$pidfile"
 count=0
 while [ "$count" -lt 100 ]; do
   if [ -S "$socket" ]; then
+    fingerprint_tmp="$fingerprint_file.$$"
+    printf '%s\n' "$environment_fingerprint" >"$fingerprint_tmp"
+    chmod 600 "$fingerprint_tmp"
+    mv "$fingerprint_tmp" "$fingerprint_file"
     printf '%s\n' "$socket"
     exit 0
   fi

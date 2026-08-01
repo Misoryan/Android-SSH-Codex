@@ -1,3 +1,5 @@
+import 'ssh_environment.dart';
+
 final class SshConfig {
   SshConfig._(this._sections, this._parseWarnings);
 
@@ -9,11 +11,11 @@ final class SshConfig {
     final warnings = <String>[];
 
     for (final rawLine in source.split(RegExp(r'\r?\n'))) {
-      final tokens = _tokenize(rawLine);
-      if (tokens.isEmpty) continue;
-      final key = tokens.first.toLowerCase();
-      final values = tokens.skip(1).toList(growable: false);
-      if (values.isEmpty) continue;
+      final parsed = _parseDirectiveLine(rawLine);
+      if (parsed == null || parsed.arguments.isEmpty) continue;
+      final originalKey = parsed.originalKey;
+      final key = originalKey.toLowerCase();
+      final values = parsed.arguments;
       if (key == 'host') {
         current = _HostSection(values);
         sections.add(current);
@@ -24,9 +26,15 @@ final class SshConfig {
           warnings.add('Unsupported SSH directive: Match');
         }
       } else {
-        current.directives.add(_Directive(key, values.join(' ')));
+        if (key == 'setenv') {
+          current.directives.addAll(
+            values.map((value) => _Directive(key, value)),
+          );
+        } else {
+          current.directives.add(_Directive(key, values.join(' ')));
+        }
         if (!_supportedDirectives.contains(key)) {
-          final warning = 'Unsupported SSH directive: ${tokens.first}';
+          final warning = 'Unsupported SSH directive: $originalKey';
           if (!warnings.contains(warning)) warnings.add(warning);
         }
       }
@@ -46,6 +54,7 @@ final class SshConfig {
     int? port;
     String? proxyJumpValue;
     final identityFiles = <String>[];
+    final environment = <String, String>{};
     final warnings = _parseWarnings.toList();
 
     for (final section in _sections) {
@@ -72,6 +81,29 @@ final class SshConfig {
           case 'proxyjump':
             proxyJumpValue ??= directive.value;
             break;
+          case 'setenv':
+            late final MapEntry<String, String> assignment;
+            try {
+              assignment = parseSshEnvironmentAssignment(directive.value);
+            } on FormatException {
+              final separator = directive.value.indexOf('=');
+              final candidateName = separator < 0
+                  ? directive.value
+                  : directive.value.substring(0, separator);
+              final warning = isValidSshEnvironmentName(candidateName)
+                  ? 'Invalid SetEnv assignment for $candidateName'
+                  : 'Invalid SetEnv assignment.';
+              if (!warnings.contains(warning)) warnings.add(warning);
+              break;
+            }
+            final name = assignment.key;
+            if (!environment.containsKey(name)) {
+              environment[name] = assignment.value;
+            } else if (environment[name] != assignment.value) {
+              final warning = 'Duplicate SetEnv variable: $name';
+              if (!warnings.contains(warning)) warnings.add(warning);
+            }
+            break;
         }
       }
     }
@@ -89,6 +121,7 @@ final class SshConfig {
           user: jumpTarget.user ?? resolved.user,
           port: jumpTarget.port ?? resolved.port,
           identityFiles: resolved.identityFiles,
+          environment: resolved.environment,
           warnings: resolved.warnings,
         );
       }
@@ -100,6 +133,7 @@ final class SshConfig {
       user: user,
       port: port ?? 22,
       identityFiles: List.unmodifiable(identityFiles),
+      environment: Map.unmodifiable(environment),
       proxyJump: jump,
       warnings: List.unmodifiable(warnings),
     );
@@ -112,6 +146,7 @@ const _supportedDirectives = {
   'port',
   'identityfile',
   'proxyjump',
+  'setenv',
 };
 
 final class ResolvedSshHost {
@@ -121,6 +156,7 @@ final class ResolvedSshHost {
     required this.user,
     required this.port,
     this.identityFiles = const [],
+    this.environment = const {},
     this.proxyJump,
     this.warnings = const [],
   });
@@ -130,6 +166,7 @@ final class ResolvedSshHost {
   final String? user;
   final int port;
   final List<String> identityFiles;
+  final Map<String, String> environment;
   final ResolvedSshHost? proxyJump;
   final List<String> warnings;
 }
@@ -158,6 +195,13 @@ final class _Directive {
 
   final String key;
   final String value;
+}
+
+final class _ParsedDirective {
+  const _ParsedDirective(this.originalKey, this.arguments);
+
+  final String originalKey;
+  final List<String> arguments;
 }
 
 final class _JumpTarget {
@@ -206,7 +250,37 @@ bool _globMatches(String pattern, String input) {
   return RegExp(buffer.toString(), caseSensitive: false).hasMatch(input);
 }
 
-List<String> _tokenize(String line) {
+_ParsedDirective? _parseDirectiveLine(String line) {
+  var index = 0;
+  while (index < line.length && RegExp(r'\s').hasMatch(line[index])) {
+    index++;
+  }
+  if (index == line.length || line[index] == '#') return null;
+
+  final keywordStart = index;
+  while (index < line.length) {
+    final char = line[index];
+    if (char == '#' || char == '=' || RegExp(r'\s').hasMatch(char)) break;
+    index++;
+  }
+  if (index == keywordStart) return null;
+  final originalKey = line.substring(keywordStart, index);
+
+  while (index < line.length && RegExp(r'\s').hasMatch(line[index])) {
+    index++;
+  }
+  if (index < line.length && line[index] == '=') index++;
+  while (index < line.length && RegExp(r'\s').hasMatch(line[index])) {
+    index++;
+  }
+
+  return _ParsedDirective(
+    originalKey,
+    _tokenizeArguments(line.substring(index)),
+  );
+}
+
+List<String> _tokenizeArguments(String line) {
   final tokens = <String>[];
   final current = StringBuffer();
   String? quote;
@@ -232,7 +306,7 @@ List<String> _tokenize(String line) {
     if (char == '#') break;
     if (char == '"' || char == "'") {
       quote = char;
-    } else if (char == '=' || RegExp(r'\s').hasMatch(char)) {
+    } else if (RegExp(r'\s').hasMatch(char)) {
       flush();
     } else {
       current.write(char);

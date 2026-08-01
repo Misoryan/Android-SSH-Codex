@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../profiles/host_profile.dart';
 import '../ssh_config/ssh_config.dart';
+import '../ssh_config/ssh_environment.dart';
 
 final class ProfileDraft {
   const ProfileDraft(this.profile, this.secret);
@@ -22,6 +23,7 @@ class ProfileEditor extends StatefulWidget {
 
 class _ProfileEditorState extends State<ProfileEditor> {
   final _formKey = GlobalKey<FormState>();
+  final _advancedSsh = ExpansibleController();
   late final TextEditingController _label;
   late final TextEditingController _host;
   late final TextEditingController _user;
@@ -34,6 +36,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
   late final TextEditingController _jumpPassphrase;
   late final TextEditingController _config;
   late final TextEditingController _alias;
+  late final TextEditingController _environment;
   late HostAuthMethod _authMethod;
   JumpHostProfile? _jump;
   String? _importError;
@@ -57,12 +60,16 @@ class _ProfileEditorState extends State<ProfileEditor> {
         TextEditingController(text: widget.secret.jumpPassphrase ?? '');
     _config = TextEditingController();
     _alias = TextEditingController(text: profile?.label ?? '');
+    _environment = TextEditingController(
+      text: formatSshEnvironmentLines(profile?.environment ?? const {}),
+    );
     _authMethod = profile?.authMethod ?? HostAuthMethod.password;
     _jump = profile?.proxyJump;
   }
 
   @override
   void dispose() {
+    _advancedSsh.dispose();
     for (final controller in [
       _label,
       _host,
@@ -76,6 +83,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
       _jumpPassphrase,
       _config,
       _alias,
+      _environment,
     ]) {
       controller.dispose();
     }
@@ -256,6 +264,26 @@ class _ProfileEditorState extends State<ProfileEditor> {
                       ),
                     ),
                   ],
+                  const SizedBox(height: 12),
+                  ExpansionTile(
+                    controller: _advancedSsh,
+                    maintainState: true,
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text('Advanced SSH'),
+                    children: [
+                      TextFormField(
+                        controller: _environment,
+                        minLines: 3,
+                        maxLines: 8,
+                        style: const TextStyle(fontFamily: 'monospace'),
+                        decoration: const InputDecoration(
+                          labelText: 'Environment variables',
+                          alignLabelWithHint: true,
+                        ),
+                        validator: validateSshEnvironmentLines,
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -286,6 +314,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
         _port.text = '${imported.port}';
         _authMethod = imported.authMethod;
         _jump = imported.proxyJump;
+        _environment.text = formatSshEnvironmentLines(imported.environment);
         _importError =
             resolved.warnings.isEmpty ? null : resolved.warnings.join('\n');
       });
@@ -295,7 +324,13 @@ class _ProfileEditorState extends State<ProfileEditor> {
   }
 
   void _save() {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      if (validateSshEnvironmentLines(_environment.text) != null) {
+        _advancedSsh.expand();
+      }
+      return;
+    }
+    final environment = parseSshEnvironmentLines(_environment.text);
     final label = _label.text.trim();
     final safeLabel =
         label.toLowerCase().replaceAll(RegExp('[^a-z0-9._-]+'), '-');
@@ -314,6 +349,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
           authMethod: _authMethod,
           identityFileHint: widget.profile?.identityFileHint,
           proxyJump: _jump,
+          environment: environment,
         ),
         HostSecret(
           password: _password.text,
