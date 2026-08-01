@@ -37,11 +37,15 @@ Future<String> resolveCodexSocketForProfile(
         environment: profile.environment,
       );
     case AppServerMode.custom:
-      final socketPath = profile.customAppServerSocket?.trim();
-      if (socketPath == null ||
-          socketPath.isEmpty ||
-          !socketPath.startsWith('/') ||
-          RegExp(r'[\x00-\x1F\x7F]').hasMatch(socketPath)) {
+      final configuredSocketPath = profile.customAppServerSocket;
+      if (configuredSocketPath == null ||
+          RegExp(r'[\x00-\x1F\x7F]').hasMatch(configuredSocketPath)) {
+        throw const CodexBootstrapException(
+          'Custom app-server socket must be an absolute Unix socket path.',
+        );
+      }
+      final socketPath = configuredSocketPath.trim();
+      if (socketPath.isEmpty || !socketPath.startsWith('/')) {
         throw const CodexBootstrapException(
           'Custom app-server socket must be an absolute Unix socket path.',
         );

@@ -419,10 +419,12 @@ class _ProfileEditorState extends State<ProfileEditor> {
   }
 
   String? _customSocketValidator(String? value) {
-    final socketPath = value?.trim() ?? '';
-    if (socketPath.isEmpty ||
-        !socketPath.startsWith('/') ||
-        RegExp(r'[\x00-\x1F\x7F]').hasMatch(socketPath)) {
+    final configuredSocketPath = value ?? '';
+    if (RegExp(r'[\x00-\x1F\x7F]').hasMatch(configuredSocketPath)) {
+      return 'Enter an absolute Unix socket path.';
+    }
+    final socketPath = configuredSocketPath.trim();
+    if (socketPath.isEmpty || !socketPath.startsWith('/')) {
       return 'Enter an absolute Unix socket path.';
     }
     return null;
