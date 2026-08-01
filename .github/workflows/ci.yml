@@ -34,7 +34,9 @@ jobs:
       - name: Verify dependency lock
         run: git diff --exit-code -- pubspec.lock
       - name: Test Android signing configuration
-        run: bash test/tool/configure_android_signing_test.sh
+        run: |
+          bash test/tool/configure_android_signing_test.sh
+          bash test/tool/extract_android_cert_sha256_test.sh
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
       - run: flutter test --reporter expanded
