@@ -150,51 +150,93 @@ class _HostRow extends StatelessWidget {
   final VoidCallback onDelete;
 
   @override
-  Widget build(BuildContext context) => Card(
-        color: selected
-            ? Theme.of(context)
-                .colorScheme
-                .secondaryContainer
-                .withValues(alpha: 0.45)
-            : null,
-        child: ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          leading: CircleAvatar(
-            child: Text(profile.label.characters.first.toUpperCase()),
-          ),
-          title: Text(profile.label),
-          subtitle: Text(
-            '${profile.user}@${profile.hostName}:${profile.port}'
-            '${profile.proxyJump == null ? '' : ' via ${profile.proxyJump!.hostName}'}',
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: Wrap(
-            spacing: 2,
-            children: [
-              IconButton(
-                tooltip: 'Edit host',
-                onPressed: onEdit,
-                icon: const Icon(Icons.edit_outlined),
-              ),
-              PopupMenuButton<String>(
-                tooltip: 'Host actions',
-                onSelected: (value) {
-                  if (value == 'delete') onDelete();
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'delete', child: Text('Remove')),
-                ],
-              ),
-              const SizedBox(width: 4),
-              FilledButton.icon(
-                onPressed: busy ? null : onConnect,
-                icon: const Icon(Icons.login, size: 18),
-                label: const Text('Connect'),
-              ),
-            ],
-          ),
+  Widget build(BuildContext context) {
+    final avatar = CircleAvatar(
+      child: Text(profile.label.characters.first.toUpperCase()),
+    );
+    final identity = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          profile.label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
-      );
+        const SizedBox(height: 2),
+        Text(
+          '${profile.user}@${profile.hostName}:${profile.port}'
+          '${profile.proxyJump == null ? '' : ' via ${profile.proxyJump!.hostName}'}',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      ],
+    );
+    final actions = <Widget>[
+      IconButton(
+        tooltip: 'Edit host',
+        onPressed: onEdit,
+        icon: const Icon(Icons.edit_outlined),
+      ),
+      PopupMenuButton<String>(
+        tooltip: 'Host actions',
+        onSelected: (value) {
+          if (value == 'delete') onDelete();
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'delete', child: Text('Remove')),
+        ],
+      ),
+      const SizedBox(width: 4),
+      FilledButton.icon(
+        onPressed: busy ? null : onConnect,
+        icon: const Icon(Icons.login, size: 18),
+        label: const Text('Connect'),
+      ),
+    ];
+
+    return Card(
+      color: selected
+          ? Theme.of(context)
+              .colorScheme
+              .secondaryContainer
+              .withValues(alpha: 0.45)
+          : null,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth >= 600) {
+            return ListTile(
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              leading: avatar,
+              title: identity,
+              trailing: Wrap(spacing: 2, children: actions),
+            );
+          }
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    avatar,
+                    const SizedBox(width: 12),
+                    Expanded(child: identity),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: actions,
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
 }

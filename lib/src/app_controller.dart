@@ -17,6 +17,16 @@ enum AppSection { hosts, tasks }
 
 enum RemoteConnectionPhase { disconnected, connecting, connected, reconnecting }
 
+enum ConnectionStage {
+  profile,
+  ssh,
+  remoteAppServer,
+  unixTunnel,
+  rpcTunnel,
+  initialize,
+  refresh,
+}
+
 Future<List<int>> bootstrapCodexForProfile(
   SshCommandRunner run,
   HostProfile profile,
@@ -143,15 +153,18 @@ final class AppController extends ChangeNotifier {
     StreamSubscription<RpcNotification>? notifications;
     StreamSubscription<RpcServerRequest>? requests;
     var published = false;
+    var stage = ConnectionStage.profile;
     try {
       final secret = await _store.readSecret(profile.id);
       final ownedThreadIds = await _store.readOwnedThreads(profile.id);
       if (attempt != _connectionAttempt) return;
+      stage = ConnectionStage.ssh;
       ssh = await _connector.connect(
         profile,
         secret,
         prompt: _promptForHostKey,
       );
+      stage = ConnectionStage.remoteAppServer;
       final output = utf8.decode(
         await bootstrapCodexForProfile(ssh.client.run, profile),
         allowMalformed: true,
@@ -165,7 +178,9 @@ final class AppController extends ChangeNotifier {
         throw StateError('Remote Codex app-server did not report its socket.');
       }
       if (attempt != _connectionAttempt) return;
+      stage = ConnectionStage.unixTunnel;
       tunnel = await SshUnixTunnel.start(ssh.client, socketPath);
+      stage = ConnectionStage.rpcTunnel;
       final transport = await WebSocketRpcTransport.connect(
         Uri.parse('ws://127.0.0.1:${tunnel.localPort}/'),
       );
@@ -177,6 +192,7 @@ final class AppController extends ChangeNotifier {
       requests = api.serverRequests.listen(
         (request) => _handleServerRequest(attempt, request),
       );
+      stage = ConnectionStage.initialize;
       await api.initialize();
       if (attempt != _connectionAttempt) return;
 
@@ -190,6 +206,7 @@ final class AppController extends ChangeNotifier {
       _loadedThreadIds = {};
       published = true;
       unawaited(rpc.done.then((_) => _handleTransportLoss(attempt, profile)));
+      stage = ConnectionStage.refresh;
       await refreshTasks(throwOnError: true);
       if (attempt != _connectionAttempt) return;
       _connectionPhase = RemoteConnectionPhase.connected;
@@ -198,9 +215,14 @@ final class AppController extends ChangeNotifier {
         const Duration(seconds: 3),
         (_) => unawaited(refreshTasks()),
       );
-    } catch (exception) {
+    } catch (exception, stackTrace) {
       if (attempt != _connectionAttempt) return;
-      _error = _friendlyError(exception);
+      debugPrint(
+        'Connection failed during ${stage.name} for '
+        '${profile.hostName}:${profile.port}: $exception',
+      );
+      debugPrintStack(stackTrace: stackTrace);
+      _error = describeConnectionFailure(stage, exception, profile);
       if (published) await _closeTransport();
       if (reconnecting) {
         _connectionPhase = RemoteConnectionPhase.reconnecting;
@@ -552,6 +574,35 @@ String _friendlyError(Object exception) {
   final text = exception.toString();
   return text.replaceFirst(
       RegExp(r'^(Exception|StateError|ArgumentError):\s*'), '');
+}
+
+String describeConnectionFailure(
+  ConnectionStage stage,
+  Object exception,
+  HostProfile profile,
+) {
+  final detail = _friendlyError(exception);
+  final target = profile.proxyJump;
+  final endpoint = target == null
+      ? '${profile.hostName}:${profile.port}'
+      : '${target.hostName}:${target.port}';
+  return switch (stage) {
+    ConnectionStage.profile => 'Could not read the SSH profile: $detail',
+    ConnectionStage.ssh => 'SSH connection to $endpoint failed: $detail',
+    ConnectionStage.remoteAppServer =>
+      'SSH connected successfully, but the remote Codex app-server failed: '
+        '$detail',
+    ConnectionStage.unixTunnel =>
+      'SSH connected successfully, but the remote Codex socket could not be '
+        'forwarded: $detail',
+    ConnectionStage.rpcTunnel =>
+      'SSH connected successfully, but the Codex tunnel refused the local RPC '
+        'connection: $detail',
+    ConnectionStage.initialize =>
+      'The Codex tunnel connected, but RPC initialization failed: $detail',
+    ConnectionStage.refresh =>
+      'Codex connected, but its task list could not be loaded: $detail',
+  };
 }
 
 extension<T> on Iterable<T> {

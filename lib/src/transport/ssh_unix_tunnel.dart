@@ -2,6 +2,30 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartssh2/dartssh2.dart';
+import 'package:flutter/foundation.dart';
+
+const _sshChannelOpenConnectFailed = 2;
+
+Future<T> openUnixChannelWithRetry<T>(
+  Future<T> Function() open, {
+  int maxAttempts = 50,
+  Duration retryDelay = const Duration(milliseconds: 100),
+  Future<void> Function(Duration) wait = Future<void>.delayed,
+}) async {
+  assert(maxAttempts > 0);
+  for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await open();
+    } on SSHChannelOpenError catch (error) {
+      if (error.code != _sshChannelOpenConnectFailed ||
+          attempt == maxAttempts) {
+        rethrow;
+      }
+      await wait(retryDelay);
+    }
+  }
+  throw StateError('Remote Unix socket retry loop ended unexpectedly.');
+}
 
 final class SshUnixTunnel {
   SshUnixTunnel._(this._client, this.remoteSocketPath, this._server);
@@ -38,7 +62,9 @@ final class SshUnixTunnel {
     StreamSubscription<List<int>>? toRemote;
     StreamSubscription<List<int>>? toLocal;
     try {
-      channel = await _client.forwardLocalUnix(remoteSocketPath);
+      channel = await openUnixChannelWithRetry(
+        () => _client.forwardLocalUnix(remoteSocketPath),
+      );
       _channels.add(channel);
       toRemote = socket.listen(
         channel.sink.add,
@@ -56,6 +82,9 @@ final class SshUnixTunnel {
         toRemote.asFuture<void>(),
         toLocal.asFuture<void>(),
       ]);
+    } catch (error, stackTrace) {
+      debugPrint('Remote Codex Unix tunnel failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
     } finally {
       await toRemote?.cancel();
       await toLocal?.cancel();
