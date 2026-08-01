@@ -7,6 +7,7 @@ import 'package:android_ssh_codex/src/app.dart';
 import 'package:android_ssh_codex/src/app_controller.dart';
 import 'package:android_ssh_codex/src/profiles/host_profile.dart';
 import 'package:android_ssh_codex/src/profiles/profile_store.dart';
+import 'package:android_ssh_codex/src/projects/remote_project.dart';
 import 'package:android_ssh_codex/src/transport/codex_daemon.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -238,5 +239,16 @@ final class _ReadProfileStore implements ProfileStore {
 
   @override
   Future<void> writeProfile(HostProfile profile, HostSecret secret) =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<RemoteProject>> readProjects(String hostId) async => const [];
+
+  @override
+  Future<void> writeProject(RemoteProject project) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> deleteProject(String hostId, String projectId) =>
       throw UnimplementedError();
 }
