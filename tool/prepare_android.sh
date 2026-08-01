@@ -24,3 +24,10 @@ for gradle_file in android/app/build.gradle.kts android/app/build.gradle; do
       "$gradle_file"
   fi
 done
+
+gradle_file="android/app/build.gradle.kts"
+if [[ ! -f "$gradle_file" ]]; then
+  echo "Expected generated Kotlin Android Gradle file: $gradle_file" >&2
+  exit 1
+fi
+bash tool/configure_android_signing.sh "$gradle_file"

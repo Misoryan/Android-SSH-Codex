@@ -54,6 +54,24 @@ still reports it loaded. Every other running thread remains visible and read-onl
    empty passphrase works with unencrypted private keys.
 5. Connect, verify the presented SSH fingerprint, then open or create a task.
 
+### Android signing migration
+
+`v0.1.5` is the first release that uses a retained Android signing identity.
+Because `v0.1.4` and older builds were signed by ephemeral CI keys, Android
+cannot accept `v0.1.5` as an update to them. Uninstall the old app once, install
+`v0.1.5`, and re-add the host profiles removed with the old app data.
+
+Starting with `v0.1.5`, later APKs use the same certificate and support normal
+in-place upgrades:
+
+```bash
+adb install -r app-arm64-v8a-release.apk
+```
+
+The native OpenHarmony HAP remains unsigned because HAP signing requires a
+separate distributor certificate and provision profile. HarmonyOS 4.2 devices
+installing the Android APK through `adb` use the stable Android signature above.
+
 `SetEnv` assignments are imported from SSH config and can also be edited under
 **Advanced SSH** as one `NAME=value` assignment per line. For example:
 

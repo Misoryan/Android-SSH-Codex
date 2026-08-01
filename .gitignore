@@ -7,6 +7,8 @@ build/
 coverage/
 android/.gradle/
 android/local.properties
+android/key.properties
+android/upload-keystore.p12
 ohos/.hvigor/
 ohos/oh_modules/
 ohos/local.properties
@@ -19,4 +21,3 @@ ohos/local.properties
 *.log
 .idea/
 .vscode/
-
