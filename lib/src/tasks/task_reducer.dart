@@ -199,14 +199,17 @@ final class TaskReducer {
   void applyRefresh(
     RefreshToken token,
     List<TaskSnapshot> snapshots,
-    Set<String> loadedByUs,
-  ) {
+    Set<String> loadedByUs, {
+    bool retainExisting = false,
+  }) {
     if (token.epoch != _state.epoch ||
         token.generation != _state.refreshGeneration) {
       return;
     }
 
-    final next = <String, TaskRecord>{};
+    final next = retainExisting
+        ? Map<String, TaskRecord>.of(_state.tasks)
+        : <String, TaskRecord>{};
     for (final snapshot in snapshots) {
       final current = _state.tasks[snapshot.id];
       final changedDuringRefresh =

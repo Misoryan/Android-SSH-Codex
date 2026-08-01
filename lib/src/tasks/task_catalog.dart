@@ -30,6 +30,15 @@ final class TaskCatalog {
     _projectNextCursor = nextCursor;
   }
 
+  void mergeProjectHead(
+    List<TaskSnapshot> tasks, {
+    required String? nextCursor,
+  }) {
+    final previousCursor = _projectNextCursor;
+    _projectTaskIds = _mergeHead(_projectTaskIds, tasks);
+    _projectNextCursor = previousCursor ?? nextCursor;
+  }
+
   void replaceUnassignedPage(
     List<TaskSnapshot> tasks, {
     required List<RemoteProject> projects,
@@ -49,6 +58,19 @@ final class TaskCatalog {
       _unassigned(tasks, projects),
     );
     _unassignedNextCursor = nextCursor;
+  }
+
+  void mergeUnassignedHead(
+    List<TaskSnapshot> tasks, {
+    required List<RemoteProject> projects,
+    required String? nextCursor,
+  }) {
+    final previousCursor = _unassignedNextCursor;
+    _unassignedTaskIds = _mergeHead(
+      _unassignedTaskIds,
+      _unassigned(tasks, projects),
+    );
+    _unassignedNextCursor = previousCursor ?? nextCursor;
   }
 
   void toggleUnassigned() {
@@ -131,3 +153,9 @@ List<String> _appendUnique(
   Iterable<TaskSnapshot> tasks,
 ) =>
     List.unmodifiable({...existing, ...tasks.map((task) => task.id)});
+
+List<String> _mergeHead(
+  List<String> existing,
+  Iterable<TaskSnapshot> tasks,
+) =>
+    List.unmodifiable({...tasks.map((task) => task.id), ...existing});
