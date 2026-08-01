@@ -9,6 +9,8 @@ abstract interface class ProfileStore {
   Future<void> writeProfile(HostProfile profile, HostSecret secret);
   Future<void> deleteProfile(String id);
   Future<HostSecret> readSecret(String id);
+  Future<String?> readAutoConnectHostId();
+  Future<void> writeAutoConnectHostId(String? profileId);
   Future<String?> readHostFingerprint(String profileId);
   Future<void> writeHostFingerprint(String profileId, String fingerprint);
   Future<Set<String>> readOwnedThreads(String profileId);
@@ -67,6 +69,9 @@ final class SecureProfileStore implements ProfileStore {
     await _storage.delete(key: 'fingerprint.$id');
     await _storage.delete(key: 'owned.$id');
     await _storage.delete(key: 'projects.$id');
+    if (await readAutoConnectHostId() == id) {
+      await writeAutoConnectHostId(null);
+    }
   }
 
   @override
@@ -77,6 +82,15 @@ final class SecureProfileStore implements ProfileStore {
       (jsonDecode(value) as Map).cast<String, dynamic>(),
     );
   }
+
+  @override
+  Future<String?> readAutoConnectHostId() =>
+      _storage.read(key: 'autoConnectHostId');
+
+  @override
+  Future<void> writeAutoConnectHostId(String? profileId) => profileId == null
+      ? _storage.delete(key: 'autoConnectHostId')
+      : _storage.write(key: 'autoConnectHostId', value: profileId);
 
   @override
   Future<String?> readHostFingerprint(String profileId) =>
@@ -157,6 +171,7 @@ final class MemoryProfileStore implements ProfileStore {
   final Map<String, String> _fingerprints = {};
   final Map<String, Set<String>> _owned = {};
   final Map<String, Map<String, RemoteProject>> _projects = {};
+  String? _autoConnectHostId;
 
   @override
   Future<List<HostProfile>> readProfiles() async =>
@@ -175,11 +190,20 @@ final class MemoryProfileStore implements ProfileStore {
     _fingerprints.remove(id);
     _owned.remove(id);
     _projects.remove(id);
+    if (_autoConnectHostId == id) _autoConnectHostId = null;
   }
 
   @override
   Future<HostSecret> readSecret(String id) async =>
       _secrets[id] ?? const HostSecret();
+
+  @override
+  Future<String?> readAutoConnectHostId() async => _autoConnectHostId;
+
+  @override
+  Future<void> writeAutoConnectHostId(String? profileId) async {
+    _autoConnectHostId = profileId;
+  }
 
   @override
   Future<String?> readHostFingerprint(String profileId) async =>

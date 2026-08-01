@@ -28,6 +28,14 @@ enum ConnectionStage {
   refresh,
 }
 
+HostProfile? resolveAutoConnectProfile(
+  List<HostProfile> profiles,
+  String? profileId,
+) {
+  if (profileId == null) return null;
+  return profiles.where((profile) => profile.id == profileId).firstOrNull;
+}
+
 Future<String> resolveCodexSocketForProfile(
   SshCommandRunner run,
   HostProfile profile,
@@ -150,13 +158,21 @@ final class AppController extends ChangeNotifier {
       _detailLoadState.taskId == taskId ? _detailLoadState.error : null;
 
   Future<void> initialize() async {
+    HostProfile? autoConnectProfile;
     try {
       _profiles = await _store.readProfiles();
+      autoConnectProfile = resolveAutoConnectProfile(
+        _profiles,
+        await _store.readAutoConnectHostId(),
+      );
     } catch (exception) {
       _profiles = const [];
       _error = 'Could not read secure storage: $exception';
     }
     notifyListeners();
+    if (autoConnectProfile != null) {
+      unawaited(connectHost(autoConnectProfile));
+    }
   }
 
   void selectSection(AppSection section) {
@@ -295,6 +311,7 @@ final class AppController extends ChangeNotifier {
       if (attempt != _connectionAttempt) return;
       _connectionPhase = RemoteConnectionPhase.connected;
       _reconnectAttempt = 0;
+      await _rememberAutoConnectHost(profile.id);
       _refreshTimer = Timer.periodic(
         const Duration(seconds: 10),
         (_) => unawaited(refreshTasks()),
@@ -877,7 +894,20 @@ final class AppController extends ChangeNotifier {
     _epoch = _taskReducer.beginConnection();
     _approvals = const [];
     await _closeTransport();
+    try {
+      await _store.writeAutoConnectHostId(null);
+    } catch (exception) {
+      _error = 'Disconnected, but could not clear auto-connect: $exception';
+    }
     notifyListeners();
+  }
+
+  Future<void> _rememberAutoConnectHost(String profileId) async {
+    try {
+      await _store.writeAutoConnectHostId(profileId);
+    } catch (exception) {
+      debugPrint('Could not remember auto-connect host: $exception');
+    }
   }
 
   List<TaskRecord> _tasksForIds(List<String> ids) => ids

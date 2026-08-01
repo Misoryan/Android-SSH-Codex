@@ -242,6 +242,13 @@ final class _ReadProfileStore implements ProfileStore {
   Future<HostSecret> readSecret(String id) => throw UnimplementedError();
 
   @override
+  Future<String?> readAutoConnectHostId() async => null;
+
+  @override
+  Future<void> writeAutoConnectHostId(String? profileId) =>
+      throw UnimplementedError();
+
+  @override
   Future<String?> readHostFingerprint(String profileId) =>
       throw UnimplementedError();
 
