@@ -21,3 +21,4 @@ ohos/local.properties
 *.log
 .idea/
 .vscode/
+docs/superpowers/

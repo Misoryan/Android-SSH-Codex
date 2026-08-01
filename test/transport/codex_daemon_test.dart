@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:android_ssh_codex/src/transport/codex_daemon.dart';
 import 'package:dartssh2/dartssh2.dart';
@@ -70,16 +71,54 @@ void main() {
     expect(first, matches(RegExp(r'^[0-9a-f]{64}$')));
   });
 
-  test('proxy command runs Codex through the POSIX shell wrapper', () {
-    final command = CodexDaemon.proxyCommand(
-      '/home/codex/.cache/android-ssh-codex/app-server.sock',
+  test('proxy command preserves SSH stdin for the downstream proxy', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'codex-proxy-test.',
     );
+    try {
+      final fakeCodex = File('${directory.path}/codex');
+      await fakeCodex.writeAsString(r'''#!/bin/sh
+if [ "$#" -ne 4 ] || [ "$1" != app-server ] || [ "$2" != proxy ] || [ "$3" != --sock ]; then
+  printf '%s\n' "unexpected arguments: $*" >&2
+  exit 2
+fi
+if ! IFS= read -r line; then
+  printf '%s\n' 'downstream received EOF before the WebSocket upgrade' >&2
+  exit 3
+fi
+printf 'socket=%s\nstdin=%s\n' "$4" "$line"
+''');
+      final chmod = await Process.run('chmod', ['700', fakeCodex.path]);
+      expect(chmod.exitCode, 0, reason: chmod.stderr.toString());
 
-    expect(
-      _decodeShellWrapper(command),
-      "exec codex app-server proxy --sock "
-      "'/home/codex/.cache/android-ssh-codex/app-server.sock'",
-    );
+      final command = CodexDaemon.proxyCommand("/home/cod'ex/app.sock");
+      final process = await Process.start(
+        '/bin/sh',
+        ['-c', command],
+        environment: {
+          ...Platform.environment,
+          'PATH': '${directory.path}:${Platform.environment['PATH'] ?? ''}',
+        },
+      );
+      final stdout = process.stdout.transform(utf8.decoder).join();
+      final stderr = process.stderr.transform(utf8.decoder).join();
+      process.stdin.writeln('websocket-upgrade');
+      await process.stdin.close();
+
+      final exitCode = await process.exitCode.timeout(
+        const Duration(seconds: 5),
+      );
+      final output = await stdout;
+      final diagnostic = await stderr;
+
+      expect(exitCode, 0, reason: diagnostic);
+      expect(
+        output,
+        "socket=/home/cod'ex/app.sock\nstdin=websocket-upgrade\n",
+      );
+    } finally {
+      await directory.delete(recursive: true);
+    }
   });
 
   test('shared mode parses the daemon lifecycle socket and forwards env',
@@ -199,18 +238,6 @@ void main() {
       '/home/codex/.codex/app-server-control/app-server-control.sock',
     );
   });
-
-  test(
-    'proxy command safely quotes a socket path containing an apostrophe',
-    () {
-      final command = CodexDaemon.proxyCommand("/home/cod'ex/app.sock");
-
-      expect(
-        _decodeShellWrapper(command),
-        "exec codex app-server proxy --sock '/home/cod'\"'\"'ex/app.sock'",
-      );
-    },
-  );
 
   test('bootstrap omits an empty environment from the SSH request', () async {
     Map<String, String>? receivedEnvironment = const {'unexpected': 'value'};
