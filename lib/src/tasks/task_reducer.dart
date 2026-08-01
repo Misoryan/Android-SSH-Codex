@@ -296,8 +296,11 @@ final class TaskReducer {
 
     switch (event._type) {
       case _TaskEventType.status:
+        final active = event.status == TaskStatus.running ||
+            event.status == TaskStatus.queued;
         current = current.copyWith(
           status: event.status,
+          ownership: active ? current.ownership : TaskOwnership.available,
           updatedAt: DateTime.now().toUtc(),
           revision: revision,
         );

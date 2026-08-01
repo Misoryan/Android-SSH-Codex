@@ -143,6 +143,25 @@ void main() {
     expect(task.canWrite, isFalse);
   });
 
+  test('a completed external turn becomes writable without waiting for refresh',
+      () {
+    final epoch = reducer.beginConnection();
+    final token = reducer.beginRefresh(epoch);
+    reducer.applyRefresh(
+      token,
+      [snapshot('external', status: TaskStatus.running)],
+      const {},
+    );
+
+    reducer.applyEvent(
+      epoch,
+      const TaskEvent.statusChanged('external', TaskStatus.completed),
+    );
+
+    expect(reducer.state.tasks['external']?.ownership, TaskOwnership.available);
+    expect(reducer.state.tasks['external']?.canWrite, isTrue);
+  });
+
   test('marks an active task loaded by this app-server as interactive', () {
     final epoch = reducer.beginConnection();
     final token = reducer.beginRefresh(epoch);

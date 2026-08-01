@@ -132,6 +132,21 @@ final class CodexRemoteApi {
     return parseThread(_map(result['thread']));
   }
 
+  Future<String?> readActiveTurnId(String threadId) async {
+    final result = _map(await _rpc.request('thread/read', {
+      'threadId': threadId,
+      'includeTurns': true,
+    }));
+    final turns = _map(result['thread'])['turns'] as List<dynamic>? ?? const [];
+    for (final rawTurn in turns.reversed) {
+      final turn = _map(rawTurn);
+      if (_isActiveTurnStatus(turn['status'])) {
+        return turn['id'] as String?;
+      }
+    }
+    return null;
+  }
+
   Future<String> startThread({required String cwd}) async {
     final result = _map(await _rpc.request('thread/start', {
       'cwd': cwd,
@@ -227,6 +242,20 @@ final class CodexRemoteApi {
     });
   }
 
+  Future<void> steerTurn(
+    String threadId,
+    String expectedTurnId,
+    String text,
+  ) async {
+    await _rpc.request('turn/steer', {
+      'threadId': threadId,
+      'expectedTurnId': expectedTurnId,
+      'input': [
+        {'type': 'text', 'text': text},
+      ],
+    });
+  }
+
   void answerApproval(Object requestId, String decision) {
     _rpc.respond(requestId, {'decision': decision});
   }
@@ -317,6 +346,14 @@ final class CodexRemoteApi {
       availableDecisions: decisions,
     );
   }
+}
+
+bool _isActiveTurnStatus(Object? raw) {
+  final status = raw is Map ? raw['type'] ?? raw['status'] : raw;
+  return switch (status?.toString().toLowerCase()) {
+    'active' || 'running' || 'inprogress' || 'in_progress' => true,
+    _ => false,
+  };
 }
 
 RemoteThreadGoal? _parseGoal(Object? raw) {

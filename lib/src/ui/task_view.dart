@@ -61,12 +61,10 @@ class _TaskViewState extends State<TaskView> {
         ),
         const Divider(height: 1),
         if (task.ownership == TaskOwnership.external)
-          const MaterialBanner(
-            leading: Icon(Icons.lock_outline),
-            content: Text(
-              'Running in another Codex client. Updates are visible here; controls remain read-only.',
-            ),
-            actions: [SizedBox.shrink()],
+          _ExternalTaskBanner(
+            busy: _commandBusy,
+            onGuide: _guideExternalTask,
+            onTakeOver: _takeOverExternalTask,
           ),
         Expanded(
           child: TaskTimeline(
@@ -357,6 +355,66 @@ class _TaskViewState extends State<TaskView> {
     );
     if (confirmed == true && mounted) {
       await _runCommand(widget.controller.compactSelectedTask);
+    }
+  }
+
+  Future<void> _guideExternalTask() async {
+    final guidance = TextEditingController();
+    final submitted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Guide active turn'),
+        content: TextField(
+          controller: guidance,
+          autofocus: true,
+          minLines: 2,
+          maxLines: 5,
+          decoration: const InputDecoration(
+            hintText: 'Add direction without stopping the other client',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Send guidance'),
+          ),
+        ],
+      ),
+    );
+    final text = guidance.text;
+    guidance.dispose();
+    if (submitted == true && text.trim().isNotEmpty && mounted) {
+      await _runCommand(() => widget.controller.guideExternalTask(text));
+    }
+  }
+
+  Future<void> _takeOverExternalTask() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Stop and take over?'),
+        content: const Text(
+          'This interrupts the active turn in the other client, then unlocks '
+          'this task here.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Stop & take over'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _runCommand(widget.controller.takeOverExternalTask);
     }
   }
 
@@ -754,6 +812,37 @@ class _CompletionPicker extends StatelessWidget {
                   },
                 ),
         ),
+      );
+}
+
+class _ExternalTaskBanner extends StatelessWidget {
+  const _ExternalTaskBanner({
+    required this.busy,
+    required this.onGuide,
+    required this.onTakeOver,
+  });
+
+  final bool busy;
+  final VoidCallback onGuide;
+  final VoidCallback onTakeOver;
+
+  @override
+  Widget build(BuildContext context) => MaterialBanner(
+        leading: const Icon(Icons.devices_outlined),
+        content: const Text(
+          'This turn is active in another Codex client. You can guide it '
+          'without changing ownership, or stop it and take control here.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: busy ? null : onGuide,
+            child: const Text('Guide'),
+          ),
+          FilledButton.tonal(
+            onPressed: busy ? null : onTakeOver,
+            child: const Text('Stop & take over'),
+          ),
+        ],
       );
 }
 

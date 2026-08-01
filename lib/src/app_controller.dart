@@ -793,6 +793,53 @@ final class AppController extends ChangeNotifier {
     await _requireApi().interruptTurn(task.id, turnId);
   }
 
+  Future<void> guideExternalTask(String guidance) async {
+    final task = selectedTask;
+    if (task == null || task.ownership != TaskOwnership.external) {
+      throw StateError('Select a task running in another client first.');
+    }
+    final normalized = guidance.trim();
+    if (normalized.isEmpty) throw ArgumentError('Guidance is required.');
+    final api = _requireApi();
+    final turnId = await api.readActiveTurnId(task.id);
+    if (turnId == null) {
+      throw StateError('The other client no longer has an active turn.');
+    }
+    await api.steerTurn(task.id, turnId, normalized);
+  }
+
+  Future<void> takeOverExternalTask() async {
+    final task = selectedTask;
+    final profileId = _selectedHostId;
+    if (task == null ||
+        profileId == null ||
+        task.ownership != TaskOwnership.external) {
+      throw StateError('Select a task running in another client first.');
+    }
+    final api = _requireApi();
+    final attempt = _connectionAttempt;
+    final epoch = _epoch;
+    final turnId = await api.readActiveTurnId(task.id);
+    if (turnId != null) await api.interruptTurn(task.id, turnId);
+    if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
+    if (!await _claimThread(
+      task.id,
+      api: api,
+      attempt: attempt,
+      epoch: epoch,
+      profileId: profileId,
+    )) {
+      return;
+    }
+    _loadedThreadIds = {..._loadedThreadIds, task.id};
+    _activeTurnIds.remove(task.id);
+    _taskReducer.applyEvent(
+      epoch,
+      TaskEvent.statusChanged(task.id, TaskStatus.interrupted),
+    );
+    notifyListeners();
+  }
+
   void answerApproval(PendingApproval approval, String decision) {
     if (!isConnected ||
         !_approvals.any((pending) => identical(pending, approval))) {
