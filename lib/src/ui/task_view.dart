@@ -355,7 +355,7 @@ class TaskCommandMenu extends StatelessWidget {
       );
 }
 
-class TaskTimeline extends StatelessWidget {
+class TaskTimeline extends StatefulWidget {
   const TaskTimeline({
     required this.items,
     this.loading = false,
@@ -370,11 +370,86 @@ class TaskTimeline extends StatelessWidget {
   final VoidCallback? onRetry;
 
   @override
+  State<TaskTimeline> createState() => _TaskTimelineState();
+}
+
+class _TaskTimelineState extends State<TaskTimeline> {
+  static const _followThreshold = 96.0;
+
+  final _scrollController = ScrollController();
+  var _followLatest = true;
+  var _showJumpToLatest = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_handleScroll);
+    _scheduleLatest(animated: false);
+  }
+
+  @override
+  void didUpdateWidget(covariant TaskTimeline oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.items != widget.items ||
+        oldWidget.loading != widget.loading ||
+        oldWidget.error != widget.error) {
+      _scheduleLatest(animated: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_handleScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _handleScroll() {
+    if (!_scrollController.hasClients) return;
+    final awayFromLatest = _distanceFromLatest > _followThreshold;
+    if (awayFromLatest == _showJumpToLatest &&
+        _followLatest == !awayFromLatest) {
+      return;
+    }
+    setState(() {
+      _showJumpToLatest = awayFromLatest;
+      _followLatest = !awayFromLatest;
+    });
+  }
+
+  double get _distanceFromLatest =>
+      _scrollController.position.maxScrollExtent -
+      _scrollController.position.pixels;
+
+  void _scheduleLatest({required bool animated}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_followLatest || !_scrollController.hasClients) return;
+      _scrollToLatest(animated: animated);
+    });
+  }
+
+  void _scrollToLatest({bool animated = true}) {
+    if (!_scrollController.hasClients) return;
+    _followLatest = true;
+    final latest = _scrollController.position.maxScrollExtent;
+    if (animated) {
+      _scrollController.animateTo(
+        latest,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    } else {
+      _scrollController.jumpTo(latest);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (loading) {
+    if (widget.loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (error != null) {
+    if (widget.error != null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -386,23 +461,43 @@ class TaskTimeline extends StatelessWidget {
                 color: Theme.of(context).colorScheme.error,
               ),
               const SizedBox(height: 10),
-              Text(error!, textAlign: TextAlign.center),
+              Text(widget.error!, textAlign: TextAlign.center),
               const SizedBox(height: 12),
-              OutlinedButton(onPressed: onRetry, child: const Text('Retry')),
+              OutlinedButton(
+                onPressed: widget.onRetry,
+                child: const Text('Retry'),
+              ),
             ],
           ),
         ),
       );
     }
-    if (items.isEmpty) {
+    if (widget.items.isEmpty) {
       return const Center(child: Text('No task events yet'));
     }
-    return SelectionArea(
-      child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
-        itemCount: items.length,
-        itemBuilder: (_, index) => TimelineItemView(item: items[index]),
-      ),
+    return Stack(
+      children: [
+        SelectionArea(
+          child: ListView.builder(
+            controller: _scrollController,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 72),
+            itemCount: widget.items.length,
+            itemBuilder: (_, index) =>
+                TimelineItemView(item: widget.items[index]),
+          ),
+        ),
+        if (_showJumpToLatest)
+          Positioned(
+            right: 16,
+            bottom: 14,
+            child: FloatingActionButton.small(
+              key: const Key('jump-to-latest'),
+              tooltip: 'Jump to latest',
+              onPressed: _scrollToLatest,
+              child: const Icon(Icons.arrow_downward),
+            ),
+          ),
+      ],
     );
   }
 }
