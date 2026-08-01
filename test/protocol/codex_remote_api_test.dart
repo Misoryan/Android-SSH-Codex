@@ -24,30 +24,89 @@ final class _RecordingTransport implements RpcTransport {
 }
 
 void main() {
+  test('reads exactly one recent 20-item task page', () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    try {
+      final page = CodexRemoteApi(rpc).readTaskPage();
+      final listRequest =
+          jsonDecode(transport.sent.single) as Map<String, dynamic>;
+      expect(listRequest, {
+        'method': 'thread/list',
+        'id': 1,
+        'params': {
+          'limit': 20,
+          'archived': false,
+          'sortKey': 'recency_at',
+          'sortDirection': 'desc',
+        },
+      });
+      transport.incoming.add(jsonEncode({
+        'id': listRequest['id'],
+        'result': {
+          'data': [],
+          'nextCursor': 'next-page',
+        },
+      }));
+
+      final result = await page;
+      await pumpEventQueue();
+
+      expect(result.tasks, isEmpty);
+      expect(result.nextCursor, 'next-page');
+      expect(transport.sent, hasLength(1));
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  test('project continuation adds cwd and the opaque cursor', () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    try {
+      final page = CodexRemoteApi(rpc).readTaskPage(
+        cwd: '/srv/mobile',
+        cursor: 'opaque-cursor',
+      );
+      final request = jsonDecode(transport.sent.single) as Map<String, dynamic>;
+
+      expect(request['params'], {
+        'limit': 20,
+        'archived': false,
+        'sortKey': 'recency_at',
+        'sortDirection': 'desc',
+        'cwd': '/srv/mobile',
+        'cursor': 'opaque-cursor',
+      });
+      transport.incoming.add(jsonEncode({
+        'id': request['id'],
+        'result': {'data': []},
+      }));
+
+      await page;
+      expect(transport.sent, hasLength(1));
+    } finally {
+      await rpc.close();
+    }
+  });
+
   test('loaded thread list sends an explicit empty params object', () async {
     final transport = _RecordingTransport();
     final rpc = JsonRpcClient(transport)..start();
     try {
-      final batch = CodexRemoteApi(rpc).readTaskBatch();
-      final listRequest =
-          jsonDecode(transport.sent.single) as Map<String, dynamic>;
-      transport.incoming.add(jsonEncode({
-        'id': listRequest['id'],
-        'result': {'data': []},
-      }));
-      await pumpEventQueue();
+      final loaded = CodexRemoteApi(rpc).readLoadedThreadIds();
 
       final loadedRequest =
-          jsonDecode(transport.sent[1]) as Map<String, dynamic>;
+          jsonDecode(transport.sent.single) as Map<String, dynamic>;
       transport.incoming.add(jsonEncode({
         'id': loadedRequest['id'],
         'result': {'data': []},
       }));
-      await batch;
+      await loaded;
 
       expect(loadedRequest, {
         'method': 'thread/loaded/list',
-        'id': 2,
+        'id': 1,
         'params': <String, dynamic>{},
       });
     } finally {
