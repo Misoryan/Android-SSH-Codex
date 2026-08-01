@@ -1,9 +1,9 @@
 # Android SSH Codex
 
 Android SSH Codex is a mobile Codex UI for Android and OpenHarmony/HarmonyOS.
-Codex stays on your development machine; the app connects through SSH, starts a
-namespaced persistent app-server, and renders its threads, turns, approvals, and
-streamed activity in a mobile workspace.
+Codex stays on your development machine; the app connects through SSH, starts
+or attaches to a selected app-server, and renders its threads, turns, approvals,
+and streamed activity in a mobile workspace.
 
 ## Scope
 
@@ -25,22 +25,32 @@ OpenAI credentials, provide a source editor, or manage Git hosting.
 ```mermaid
 flowchart LR
   A["Android / HarmonyOS app"] -->|"SSH"| T["Loopback-to-Unix tunnel"]
-  T --> M["Android SSH Codex app-server socket"]
-  D["Codex Desktop / IDE / CLI"] --> O["Their own app-server processes"]
-  M --> S["Shared Codex thread storage"]
-  O --> S
+  T --> H{"Host app-server mode"}
+  H -->|"Shared"| D["Codex-managed daemon"]
+  H -->|"Custom"| C["Configured Unix socket"]
+  H -->|"Isolated"| I["Android-owned daemon"]
+  X["Codex Desktop / local clients"] --> D
 ```
 
-The app-owned endpoint is always
-`~/.cache/android-ssh-codex/app-server.sock` (or the matching XDG cache path).
-Startup uses an atomic directory lock. When a profile's environment changes,
-the app validates the recorded PID, command, and socket before restarting only
-its own app-server so the new values take effect. Other Codex app-server sockets
-are outside this namespace and are never touched.
+Each Host explicitly selects one app-server mode:
+
+- **Shared** is the default. It starts or reuses the Codex-managed daemon for
+  the effective `CODEX_HOME` and attaches to the socket reported by Codex. This
+  lets Android, Desktop, and local clients share loaded task state and events.
+- **Custom** attaches to an absolute Unix socket path. Android never starts,
+  restarts, or stops the process behind that socket.
+- **Isolated** retains the Android-owned endpoint at
+  `~/.cache/android-ssh-codex/app-server.sock` (or the matching XDG cache path).
+  Only this mode manages a daemon and restarts it when the profile environment
+  fingerprint changes.
+
+Mode is stored per Host. Multiple Hosts may use the same SSH endpoint with
+different names, environments, and modes when separate runtime boundaries are
+needed. A selected mode never silently falls back to another one.
 
 Task refreshes and live notifications pass through one reducer with connection
 epochs, refresh generations, and event revisions. A running thread is writable
-only when this device previously created or resumed it and the app-owned server
+only when this device previously created or resumed it and the connected server
 still reports it loaded. Every other running thread remains visible and read-only.
 
 ## Install and connect
@@ -50,7 +60,8 @@ still reports it loaded. Every other running thread remains visible and read-onl
 2. On the remote host, install and authenticate Codex CLI 0.146.0 or newer.
    The app uses `codex app-server proxy --sock` to carry the WebSocket safely
    through an SSH exec channel.
-3. Add a host manually or paste relevant `~/.ssh/config` contents.
+3. Add a host manually or paste relevant `~/.ssh/config` contents, then choose
+   Shared, Custom, or Isolated. Existing and imported Hosts default to Shared.
 4. Attach the private key text or password. Imported `IdentityFile` paths are
    hints because those files live on the machine from which the config came. An
    empty passphrase works with unencrypted private keys.
@@ -98,11 +109,12 @@ applied by the app; in particular, `IPQoS` remains unsupported.
 
 Secrets and pinned fingerprints use the platform secure-storage implementation.
 SSH and Codex RPC input are not logged by the app. Daemon reuse records only a
-SHA-256 environment fingerprint, never environment values.
+SHA-256 environment fingerprint in Isolated mode, never environment values.
 
 ## Development
 
 See [the product design](docs/superpowers/specs/2026-07-31-android-ssh-codex-design.md),
+[the host app-server modes design](docs/superpowers/specs/2026-08-01-host-app-server-modes-design.md),
 [implementation plan](docs/superpowers/plans/2026-07-31-android-ssh-codex.md),
 and [build guide](docs/BUILDING.md).
 
