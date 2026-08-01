@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:android_ssh_codex/main.dart' as application;
@@ -62,11 +63,18 @@ void main() {
       String? receivedCommand;
       Map<String, String>? receivedEnvironment;
 
-      await bootstrapCodexForProfile(
+      final socketPath = await bootstrapCodexForProfile(
         (command, {environment}) async {
           receivedCommand = command;
           receivedEnvironment = environment;
-          return const [];
+          return SshCommandResult(
+            stdout: utf8.encode(
+              '/home/pi/.cache/android-ssh-codex/app-server.sock\n',
+            ),
+            stderr: const [],
+            exitCode: 0,
+            exitSignal: null,
+          );
         },
         profile,
       );
@@ -76,6 +84,10 @@ void main() {
         CodexDaemon.bootstrapCommand(profile.environment),
       );
       expect(identical(receivedEnvironment, profile.environment), isTrue);
+      expect(
+        socketPath,
+        '/home/pi/.cache/android-ssh-codex/app-server.sock',
+      );
     },
   );
 

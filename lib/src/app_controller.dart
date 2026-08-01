@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
@@ -27,7 +26,7 @@ enum ConnectionStage {
   refresh,
 }
 
-Future<List<int>> bootstrapCodexForProfile(
+Future<String> bootstrapCodexForProfile(
   SshCommandRunner run,
   HostProfile profile,
 ) =>
@@ -165,18 +164,22 @@ final class AppController extends ChangeNotifier {
         prompt: _promptForHostKey,
       );
       stage = ConnectionStage.remoteAppServer;
-      final output = utf8.decode(
-        await bootstrapCodexForProfile(ssh.client.run, profile),
-        allowMalformed: true,
+      final client = ssh.client;
+      final socketPath = await bootstrapCodexForProfile(
+        (command, {environment}) async {
+          final result = await client.runWithResult(
+            command,
+            environment: environment,
+          );
+          return SshCommandResult(
+            stdout: result.stdout,
+            stderr: result.stderr,
+            exitCode: result.exitCode,
+            exitSignal: result.exitSignal?.signalName,
+          );
+        },
+        profile,
       );
-      final socketPath = output
-          .split(RegExp(r'\r?\n'))
-          .map((line) => line.trim())
-          .where((line) => line.endsWith('app-server.sock'))
-          .lastOrNull;
-      if (socketPath == null) {
-        throw StateError('Remote Codex app-server did not report its socket.');
-      }
       if (attempt != _connectionAttempt) return;
       stage = ConnectionStage.unixTunnel;
       tunnel = await SshUnixTunnel.start(ssh.client, socketPath);
@@ -609,15 +612,5 @@ extension<T> on Iterable<T> {
   T? get firstOrNull {
     final iterator = this.iterator;
     return iterator.moveNext() ? iterator.current : null;
-  }
-
-  T? get lastOrNull {
-    T? result;
-    var found = false;
-    for (final item in this) {
-      result = item;
-      found = true;
-    }
-    return found ? result : null;
   }
 }

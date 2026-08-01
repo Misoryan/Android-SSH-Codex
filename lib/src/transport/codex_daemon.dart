@@ -3,7 +3,30 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:dartssh2/dartssh2.dart';
 
-typedef SshCommandRunner = Future<List<int>> Function(
+final class SshCommandResult {
+  const SshCommandResult({
+    required this.stdout,
+    required this.stderr,
+    required this.exitCode,
+    required this.exitSignal,
+  });
+
+  final List<int> stdout;
+  final List<int> stderr;
+  final int? exitCode;
+  final String? exitSignal;
+}
+
+final class CodexBootstrapException implements Exception {
+  const CodexBootstrapException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+typedef SshCommandRunner = Future<SshCommandResult> Function(
   String command, {
   Map<String, String>? environment,
 });
@@ -19,16 +42,22 @@ final class CodexDaemon {
     return sha256.convert(utf8.encode(jsonEncode(canonical))).toString();
   }
 
-  static String bootstrapCommand(Map<String, String> environment) =>
+  static String _bootstrapPayload(Map<String, String> environment) =>
       "environment_fingerprint='${environmentFingerprint(environment)}'\n"
       '$bootstrapScript';
 
-  static Future<List<int>> bootstrap(
+  static String bootstrapCommand(Map<String, String> environment) {
+    final payload = base64Encode(utf8.encode(_bootstrapPayload(environment)));
+    return "printf '%s' '$payload' | base64 -d | /bin/sh";
+  }
+
+  static Future<String> bootstrap(
     SshCommandRunner run, {
     required Map<String, String> environment,
   }) async {
+    late final SshCommandResult result;
     try {
-      return await run(
+      result = await run(
         bootstrapCommand(environment),
         environment: environment.isEmpty ? null : environment,
       );
@@ -43,6 +72,49 @@ final class CodexDaemon {
         'in sshd_config, or remove it from this profile.',
       );
     }
+
+    final failures = <String>[
+      if (result.exitCode != null && result.exitCode != 0)
+        'exit code ${result.exitCode}',
+      if (result.exitSignal != null) 'signal ${result.exitSignal}',
+    ];
+    if (failures.isNotEmpty) {
+      throw CodexBootstrapException(
+        'Remote Codex bootstrap failed with ${failures.join(' and ')}: '
+        '${_diagnostic(result)}',
+      );
+    }
+
+    final output = utf8.decode(result.stdout, allowMalformed: true);
+    final socketPath = output
+        .split(RegExp(r'\r?\n'))
+        .map((line) => line.trim())
+        .where((line) => line.endsWith('app-server.sock'))
+        .lastOrNull;
+    if (socketPath == null) {
+      throw CodexBootstrapException(
+        'Remote Codex bootstrap did not report its socket: '
+        '${_diagnostic(result)}',
+      );
+    }
+    return socketPath;
+  }
+
+  static String _diagnostic(SshCommandResult result) => _boundedDiagnostic(
+        result.stderr.isNotEmpty ? result.stderr : result.stdout,
+      );
+
+  static const _maxDiagnosticCharacters = 1200;
+
+  static String _boundedDiagnostic(List<int> bytes) {
+    var text = utf8.decode(bytes, allowMalformed: true).trim();
+    text = text.replaceAll(
+      RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]'),
+      '?',
+    );
+    if (text.isEmpty) return 'No diagnostic output was returned.';
+    if (text.length <= _maxDiagnosticCharacters) return text;
+    return '${text.substring(0, _maxDiagnosticCharacters - 3)}...';
   }
 
   static const bootstrapScript = r'''
@@ -143,4 +215,16 @@ done
 printf '%s\n' "Codex app-server did not create $socket; inspect $log" >&2
 exit 1
 ''';
+}
+
+extension<T> on Iterable<T> {
+  T? get lastOrNull {
+    T? result;
+    var found = false;
+    for (final item in this) {
+      result = item;
+      found = true;
+    }
+    return found ? result : null;
+  }
 }

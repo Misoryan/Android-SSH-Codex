@@ -37,7 +37,9 @@ secure-storage implementation.
 
 ## Remote host requirements
 
-- POSIX shell and OpenSSH server with Unix-socket forwarding enabled.
+- `/bin/sh`, a `base64` command, and an OpenSSH server with Unix-socket
+  forwarding enabled. The account login shell may be fish, Bash, Zsh, or
+  another shell that supports ordinary commands, quoting, and pipelines.
 - `AcceptEnv` permission in `sshd_config` for every profile environment name.
 - A current Codex CLI whose `codex app-server` supports Unix listeners.
 - A writable `$HOME` and either `$XDG_CACHE_HOME` or `$HOME/.cache`.
