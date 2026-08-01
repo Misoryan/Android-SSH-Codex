@@ -47,7 +47,9 @@ still reports it loaded. Every other running thread remains visible and read-onl
 
 1. Download the APK or HAP and its checksum from
    [Releases](https://github.com/wkj2333666/Android-SSH-Codex/releases).
-2. On the remote host, install and authenticate a current Codex CLI.
+2. On the remote host, install and authenticate Codex CLI 0.146.0 or newer.
+   The app uses `codex app-server proxy --sock` to carry the WebSocket safely
+   through an SSH exec channel.
 3. Add a host manually or paste relevant `~/.ssh/config` contents.
 4. Attach the private key text or password. Imported `IdentityFile` paths are
    hints because those files live on the machine from which the config came. An
