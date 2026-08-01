@@ -112,6 +112,7 @@ final class AppController extends ChangeNotifier {
   var _refreshQueuedResetPages = false;
   var _loadingProjectPage = false;
   var _loadingUnassignedPage = false;
+  Future<void> _autoConnectIntentWrite = Future.value();
 
   List<HostProfile> get profiles => _profiles;
   List<RemoteProject> get projects => _projects;
@@ -312,6 +313,7 @@ final class AppController extends ChangeNotifier {
       _connectionPhase = RemoteConnectionPhase.connected;
       _reconnectAttempt = 0;
       await _rememberAutoConnectHost(profile.id);
+      if (attempt != _connectionAttempt) return;
       _refreshTimer = Timer.periodic(
         const Duration(seconds: 10),
         (_) => unawaited(refreshTasks()),
@@ -822,6 +824,8 @@ final class AppController extends ChangeNotifier {
     final turnId = await api.readActiveTurnId(task.id);
     if (turnId != null) await api.interruptTurn(task.id, turnId);
     if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
+    await api.resumeThread(task.id);
+    if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
     if (!await _claimThread(
       task.id,
       api: api,
@@ -942,7 +946,7 @@ final class AppController extends ChangeNotifier {
     _approvals = const [];
     await _closeTransport();
     try {
-      await _store.writeAutoConnectHostId(null);
+      await _writeAutoConnectIntent(null);
     } catch (exception) {
       _error = 'Disconnected, but could not clear auto-connect: $exception';
     }
@@ -951,10 +955,20 @@ final class AppController extends ChangeNotifier {
 
   Future<void> _rememberAutoConnectHost(String profileId) async {
     try {
-      await _store.writeAutoConnectHostId(profileId);
+      await _writeAutoConnectIntent(profileId);
     } catch (exception) {
       debugPrint('Could not remember auto-connect host: $exception');
     }
+  }
+
+  Future<void> _writeAutoConnectIntent(String? profileId) {
+    final operation = _autoConnectIntentWrite.then(
+      (_) => _store.writeAutoConnectHostId(profileId),
+    );
+    _autoConnectIntentWrite = operation.catchError((Object exception) {
+      debugPrint('Could not persist auto-connect intent: $exception');
+    });
+    return operation;
   }
 
   List<TaskRecord> _tasksForIds(List<String> ids) => ids

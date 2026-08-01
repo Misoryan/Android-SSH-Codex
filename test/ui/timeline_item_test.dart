@@ -19,6 +19,7 @@ void main() {
     final markdown = tester.widget<MarkdownBody>(find.byType(MarkdownBody));
     expect(markdown.selectable, isTrue);
     expect(markdown.builders, contains('latex'));
+    expect(markdown.imageBuilder, isNotNull);
     expect(find.textContaining('Result', findRichText: true), findsOneWidget);
   });
 

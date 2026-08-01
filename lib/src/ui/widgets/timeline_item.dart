@@ -51,14 +51,24 @@ class _ActivityCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final expandable = item.kind == TaskItemKind.reasoning ||
         item.detail?.trim().isNotEmpty == true;
-    final body = item.detail?.trim().isNotEmpty == true
-        ? item.detail!.trim()
-        : item.text.trim();
+    final detail = item.detail?.trim();
+    final body =
+        item.kind == TaskItemKind.reasoning && detail?.isNotEmpty == true
+        ? '${item.text.trim()}\n\n$detail'
+        : detail?.isNotEmpty == true
+            ? detail!
+            : item.text.trim();
     final tile = ExpansionTile(
       leading: Icon(_icon, size: 20, color: _color(context)),
       title: Row(
         children: [
-          Expanded(child: Text(item.title ?? _label)),
+          Expanded(
+            child: Text(
+              item.title ?? _label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
           if (item.status != null) _StatusBadge(status: item.status!),
         ],
       ),

@@ -27,6 +27,12 @@ class _TaskViewState extends State<TaskView> {
   var _loadingSkills = false;
 
   @override
+  void initState() {
+    super.initState();
+    _composer.addListener(_updateCompletions);
+  }
+
+  @override
   void didUpdateWidget(covariant TaskView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.task.id != widget.task.id) {
@@ -41,7 +47,9 @@ class _TaskViewState extends State<TaskView> {
 
   @override
   void dispose() {
-    _composer.dispose();
+    _composer
+      ..removeListener(_updateCompletions)
+      ..dispose();
     super.dispose();
   }
 
@@ -102,7 +110,6 @@ class _TaskViewState extends State<TaskView> {
           enabled: task.canWrite && widget.controller.isConnected && !_sending,
           completions: _completions,
           loadingCompletions: _loadingSkills,
-          onChanged: _updateCompletions,
           onCompletion: _selectCompletion,
           onSend: _send,
         ),
@@ -184,7 +191,8 @@ class _TaskViewState extends State<TaskView> {
     }
   }
 
-  void _updateCompletions(String _) {
+  void _updateCompletions() {
+    if (!mounted) return;
     final cursor = _composer.selection.baseOffset;
     final completions = composerCompletions(
       _composer.text,
@@ -200,12 +208,13 @@ class _TaskViewState extends State<TaskView> {
   }
 
   Future<void> _loadCompletionSkills() async {
+    final taskId = widget.task.id;
     setState(() => _loadingSkills = true);
     try {
       final skills = await widget.controller.listSkillsForSelectedTask();
-      if (!mounted) return;
+      if (!mounted || widget.task.id != taskId) return;
       _availableSkills = skills;
-      _updateCompletions(_composer.text);
+      _updateCompletions();
     } catch (exception) {
       _showError(exception);
     } finally {
@@ -214,6 +223,19 @@ class _TaskViewState extends State<TaskView> {
   }
 
   Future<void> _selectCompletion(ComposerCompletion completion) async {
+    final current = composerCompletions(
+      _composer.text,
+      _composer.selection.baseOffset,
+      _availableSkills ?? const [],
+    ).any(
+      (candidate) =>
+          candidate.kind == completion.kind &&
+          candidate.value == completion.value,
+    );
+    if (!current) {
+      setState(() => _completions = const []);
+      return;
+    }
     final edit = removeActiveCompletionToken(
       _composer.text,
       _composer.selection.baseOffset,
@@ -708,7 +730,6 @@ class _Composer extends StatelessWidget {
     required this.enabled,
     required this.completions,
     required this.loadingCompletions,
-    required this.onChanged,
     required this.onCompletion,
     required this.onSend,
   });
@@ -717,7 +738,6 @@ class _Composer extends StatelessWidget {
   final bool enabled;
   final List<ComposerCompletion> completions;
   final bool loadingCompletions;
-  final ValueChanged<String> onChanged;
   final ValueChanged<ComposerCompletion> onCompletion;
   final VoidCallback onSend;
 
@@ -742,7 +762,6 @@ class _Composer extends StatelessWidget {
                     child: TextField(
                       controller: controller,
                       enabled: enabled,
-                      onChanged: onChanged,
                       minLines: 1,
                       maxLines: 5,
                       textCapitalization: TextCapitalization.sentences,
