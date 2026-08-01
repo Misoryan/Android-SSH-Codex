@@ -37,7 +37,9 @@ class _ProfileEditorState extends State<ProfileEditor> {
   late final TextEditingController _config;
   late final TextEditingController _alias;
   late final TextEditingController _environment;
+  late final TextEditingController _customAppServerSocket;
   late HostAuthMethod _authMethod;
+  late AppServerMode _appServerMode;
   JumpHostProfile? _jump;
   String? _importError;
 
@@ -63,7 +65,11 @@ class _ProfileEditorState extends State<ProfileEditor> {
     _environment = TextEditingController(
       text: formatSshEnvironmentLines(profile?.environment ?? const {}),
     );
+    _customAppServerSocket = TextEditingController(
+      text: profile?.customAppServerSocket ?? '',
+    );
     _authMethod = profile?.authMethod ?? HostAuthMethod.password;
+    _appServerMode = profile?.appServerMode ?? AppServerMode.shared;
     _jump = profile?.proxyJump;
   }
 
@@ -84,6 +90,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
       _config,
       _alias,
       _environment,
+      _customAppServerSocket,
     ]) {
       controller.dispose();
     }
@@ -180,6 +187,42 @@ class _ProfileEditorState extends State<ProfileEditor> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 14),
+                  SegmentedButton<AppServerMode>(
+                    expandedInsets: EdgeInsets.zero,
+                    showSelectedIcon: false,
+                    segments: const [
+                      ButtonSegment(
+                        value: AppServerMode.shared,
+                        icon: Icon(Icons.hub_outlined),
+                        label: Text('Shared'),
+                      ),
+                      ButtonSegment(
+                        value: AppServerMode.custom,
+                        icon: Icon(Icons.settings_ethernet),
+                        label: Text('Custom'),
+                      ),
+                      ButtonSegment(
+                        value: AppServerMode.isolated,
+                        icon: Icon(Icons.lock_outline),
+                        label: Text('Isolated'),
+                      ),
+                    ],
+                    selected: {_appServerMode},
+                    onSelectionChanged: (value) =>
+                        setState(() => _appServerMode = value.single),
+                  ),
+                  if (_appServerMode == AppServerMode.custom) ...[
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _customAppServerSocket,
+                      style: const TextStyle(fontFamily: 'monospace'),
+                      decoration: const InputDecoration(
+                        labelText: 'App-server Unix socket',
+                      ),
+                      validator: _customSocketValidator,
+                    ),
+                  ],
                   const SizedBox(height: 14),
                   SegmentedButton<HostAuthMethod>(
                     segments: const [
@@ -350,6 +393,10 @@ class _ProfileEditorState extends State<ProfileEditor> {
           identityFileHint: widget.profile?.identityFileHint,
           proxyJump: _jump,
           environment: environment,
+          appServerMode: _appServerMode,
+          customAppServerSocket: _appServerMode == AppServerMode.custom
+              ? _customAppServerSocket.text.trim()
+              : null,
         ),
         HostSecret(
           password: _password.text,
@@ -369,5 +416,15 @@ class _ProfileEditorState extends State<ProfileEditor> {
   String? _portValidator(String? value) {
     final port = int.tryParse(value ?? '');
     return port == null || port < 1 || port > 65535 ? 'Invalid port' : null;
+  }
+
+  String? _customSocketValidator(String? value) {
+    final socketPath = value?.trim() ?? '';
+    if (socketPath.isEmpty ||
+        !socketPath.startsWith('/') ||
+        RegExp(r'[\x00-\x1F\x7F]').hasMatch(socketPath)) {
+      return 'Enter an absolute Unix socket path.';
+    }
+    return null;
   }
 }
