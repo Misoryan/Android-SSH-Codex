@@ -46,11 +46,85 @@ jobs:
           restore-keys: android-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-
       - name: Generate Android platform
         run: bash tool/prepare_android.sh
+      - name: Restore Android signing identity
+        id: android-signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          EXPECTED_CERT_SHA256: ${{ vars.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          missing=()
+          [[ -n "$KEYSTORE_BASE64" ]] || missing+=(ANDROID_KEYSTORE_BASE64)
+          [[ -n "$KEYSTORE_PASSWORD" ]] || missing+=(ANDROID_KEYSTORE_PASSWORD)
+          [[ -n "$KEY_ALIAS" ]] || missing+=(ANDROID_KEY_ALIAS)
+          [[ -n "$KEY_PASSWORD" ]] || missing+=(ANDROID_KEY_PASSWORD)
+          [[ -n "$EXPECTED_CERT_SHA256" ]] || missing+=(ANDROID_SIGNING_CERT_SHA256)
+
+          if (( ${#missing[@]} > 0 )); then
+            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              echo "::error::A release tag requires: ${missing[*]}"
+              exit 1
+            fi
+            echo "::notice::Stable Android signing is unavailable for this event; using the generated debug identity."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/upload-keystore.jks
+          {
+            printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'storeFile=../upload-keystore.jks\n'
+          } > android/key.properties
+          echo "configured=true" >> "$GITHUB_OUTPUT"
       - run: flutter pub get
       - name: Build split APKs
         run: flutter build apk --release --split-per-abi
       - name: Build app bundle
         run: flutter build appbundle --release
+      - name: Verify Android APK signatures
+        env:
+          SIGNING_CONFIGURED: ${{ steps.android-signing.outputs.configured }}
+          EXPECTED_CERT_SHA256: ${{ vars.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -x "$apksigner"
+          expected=$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')
+
+          for apk in build/app/outputs/flutter-apk/*.apk; do
+            report=$("$apksigner" verify --verbose --print-certs "$apk")
+            printf '%s\n' "$report"
+            actual=$(printf '%s\n' "$report" \
+              | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+              | head -n 1 \
+              | tr -d ':[:space:]' \
+              | tr '[:upper:]' '[:lower:]')
+            test -n "$actual"
+            if [[ "$SIGNING_CONFIGURED" == true && "$actual" != "$expected" ]]; then
+              echo "::error file=$apk::Signer SHA-256 mismatch: expected $expected, got $actual"
+              exit 1
+            fi
+          done
+
+          aab=$(find build/app/outputs/bundle/release -type f -name '*.aab' | head -n 1)
+          test -n "$aab"
+          jarsigner -verify "$aab"
+          aab_report=$(keytool -printcert -jarfile "$aab")
+          printf '%s\n' "$aab_report"
+          aab_actual=$(printf '%s\n' "$aab_report" \
+            | sed -n 's/^[[:space:]]*SHA256: //p' \
+            | head -n 1 \
+            | tr -d ':[:space:]' \
+            | tr '[:upper:]' '[:lower:]')
+          test -n "$aab_actual"
+          if [[ "$SIGNING_CONFIGURED" == true && "$aab_actual" != "$expected" ]]; then
+            echo "::error file=$aab::Signer SHA-256 mismatch: expected $expected, got $aab_actual"
+            exit 1
+          fi
       - name: Collect Android artifacts
         run: |
           mkdir -p dist/android
@@ -64,6 +138,9 @@ jobs:
           path: dist/android
           if-no-files-found: error
           retention-days: 14
+      - name: Remove Android signing material
+        if: always()
+        run: rm -f android/key.properties android/upload-keystore.jks
 
   ohos:
     name: OpenHarmony HAP

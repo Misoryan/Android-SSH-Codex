@@ -20,6 +20,13 @@ android {
 }
 GRADLE
 
+cat > "$tmp_dir/key.properties" <<'PROPERTIES'
+storePassword=fixture-password
+keyPassword=fixture-password
+keyAlias=fixture
+storeFile=fixture.jks
+PROPERTIES
+
 bash "$repo_root/tool/configure_android_signing.sh" "$gradle_file"
 
 grep -Fq 'import java.util.Properties' "$gradle_file"
