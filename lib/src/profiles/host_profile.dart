@@ -4,6 +4,8 @@ import '../ssh_config/ssh_config.dart';
 
 enum HostAuthMethod { password, privateKey }
 
+enum AppServerMode { shared, custom, isolated }
+
 final class JumpHostProfile {
   const JumpHostProfile({
     required this.hostName,
@@ -55,6 +57,8 @@ final class HostProfile {
     String? identityFileHint,
     JumpHostProfile? proxyJump,
     Map<String, String> environment = const {},
+    AppServerMode appServerMode = AppServerMode.shared,
+    String? customAppServerSocket,
   }) =>
       HostProfile._(
         id: id,
@@ -66,6 +70,8 @@ final class HostProfile {
         identityFileHint: identityFileHint,
         proxyJump: proxyJump,
         environment: Map.unmodifiable(environment),
+        appServerMode: appServerMode,
+        customAppServerSocket: customAppServerSocket,
       );
 
   const HostProfile._({
@@ -78,6 +84,8 @@ final class HostProfile {
     required this.identityFileHint,
     required this.proxyJump,
     required this.environment,
+    required this.appServerMode,
+    required this.customAppServerSocket,
   });
 
   factory HostProfile.fromResolved(ResolvedSshHost host) => HostProfile(
@@ -92,6 +100,7 @@ final class HostProfile {
         identityFileHint:
             host.identityFiles.isEmpty ? null : host.identityFiles.first,
         environment: host.environment,
+        appServerMode: AppServerMode.shared,
         proxyJump: host.proxyJump == null
             ? null
             : JumpHostProfile(
@@ -118,6 +127,11 @@ final class HostProfile {
         environment: json['environment'] is Map
             ? (json['environment'] as Map).cast<String, String>()
             : const {},
+        appServerMode: AppServerMode.values.firstWhere(
+          (value) => value.name == json['appServerMode'],
+          orElse: () => AppServerMode.shared,
+        ),
+        customAppServerSocket: json['customAppServerSocket'] as String?,
         proxyJump: json['proxyJump'] is Map
             ? JumpHostProfile.fromJson(
                 (json['proxyJump'] as Map).cast<String, dynamic>(),
@@ -134,6 +148,14 @@ final class HostProfile {
   final String? identityFileHint;
   final JumpHostProfile? proxyJump;
   final Map<String, String> environment;
+  final AppServerMode appServerMode;
+  final String? customAppServerSocket;
+
+  String get appServerModeLabel => switch (appServerMode) {
+        AppServerMode.shared => 'Shared app-server',
+        AppServerMode.custom => 'Custom socket',
+        AppServerMode.isolated => 'Isolated app-server',
+      };
 
   HostProfile copyWith({
     String? id,
@@ -145,7 +167,10 @@ final class HostProfile {
     String? identityFileHint,
     JumpHostProfile? proxyJump,
     Map<String, String>? environment,
+    AppServerMode? appServerMode,
+    String? customAppServerSocket,
     bool clearProxyJump = false,
+    bool clearCustomAppServerSocket = false,
   }) =>
       HostProfile(
         id: id ?? this.id,
@@ -157,6 +182,10 @@ final class HostProfile {
         identityFileHint: identityFileHint ?? this.identityFileHint,
         proxyJump: clearProxyJump ? null : proxyJump ?? this.proxyJump,
         environment: environment ?? this.environment,
+        appServerMode: appServerMode ?? this.appServerMode,
+        customAppServerSocket: clearCustomAppServerSocket
+            ? null
+            : customAppServerSocket ?? this.customAppServerSocket,
       );
 
   Map<String, dynamic> toJson() => {
@@ -169,6 +198,10 @@ final class HostProfile {
         if (identityFileHint != null) 'identityFileHint': identityFileHint,
         if (proxyJump != null) 'proxyJump': proxyJump!.toJson(),
         if (environment.isNotEmpty) 'environment': environment,
+        'appServerMode': appServerMode.name,
+        if (appServerMode == AppServerMode.custom &&
+            customAppServerSocket != null)
+          'customAppServerSocket': customAppServerSocket,
       };
 
   @override
@@ -182,6 +215,8 @@ final class HostProfile {
       other.authMethod == authMethod &&
       other.identityFileHint == identityFileHint &&
       other.proxyJump == proxyJump &&
+      other.appServerMode == appServerMode &&
+      other.customAppServerSocket == customAppServerSocket &&
       const MapEquality<String, String>().equals(
         other.environment,
         environment,
@@ -197,6 +232,8 @@ final class HostProfile {
         authMethod,
         identityFileHint,
         proxyJump,
+        appServerMode,
+        customAppServerSocket,
         const MapEquality<String, String>().hash(environment),
       );
 }

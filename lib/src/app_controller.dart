@@ -26,11 +26,38 @@ enum ConnectionStage {
   refresh,
 }
 
-Future<String> bootstrapCodexForProfile(
+Future<String> resolveCodexSocketForProfile(
   SshCommandRunner run,
   HostProfile profile,
-) =>
-    CodexDaemon.bootstrap(run, environment: profile.environment);
+) async {
+  switch (profile.appServerMode) {
+    case AppServerMode.shared:
+      return CodexDaemon.startShared(
+        run,
+        environment: profile.environment,
+      );
+    case AppServerMode.custom:
+      final configuredSocketPath = profile.customAppServerSocket;
+      if (configuredSocketPath == null ||
+          RegExp(r'[\x00-\x1F\x7F]').hasMatch(configuredSocketPath)) {
+        throw const CodexBootstrapException(
+          'Custom app-server socket must be an absolute Unix socket path.',
+        );
+      }
+      final socketPath = configuredSocketPath.trim();
+      if (socketPath.isEmpty || !socketPath.startsWith('/')) {
+        throw const CodexBootstrapException(
+          'Custom app-server socket must be an absolute Unix socket path.',
+        );
+      }
+      return socketPath;
+    case AppServerMode.isolated:
+      return CodexDaemon.bootstrap(
+        run,
+        environment: profile.environment,
+      );
+  }
+}
 
 final class AppController extends ChangeNotifier {
   AppController({required ProfileStore store})
@@ -165,7 +192,7 @@ final class AppController extends ChangeNotifier {
       );
       stage = ConnectionStage.remoteAppServer;
       final client = ssh.client;
-      final socketPath = await bootstrapCodexForProfile(
+      final socketPath = await resolveCodexSocketForProfile(
         (command, {environment}) async {
           final result = await client.runWithResult(
             command,

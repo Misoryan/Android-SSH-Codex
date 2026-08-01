@@ -70,8 +70,13 @@ secure-storage implementation.
   forwarding enabled. The account login shell may be fish, Bash, Zsh, or
   another shell that supports ordinary commands, quoting, and pipelines.
 - `AcceptEnv` permission in `sshd_config` for every profile environment name.
-- A current Codex CLI whose `codex app-server` supports Unix listeners.
-- A writable `$HOME` and either `$XDG_CACHE_HOME` or `$HOME/.cache`.
+- Codex CLI 0.146.0 or newer for the Shared daemon lifecycle command. Older
+  versions can use Shared only when their standard app-server control socket is
+  already running.
+- A current Codex CLI whose `codex app-server proxy --sock` supports the selected
+  Unix socket.
+- A writable `$HOME`; Isolated mode also requires a writable
+  `$XDG_CACHE_HOME` or `$HOME/.cache`.
 - Network access required by the selected Codex provider.
 
 For example, a profile containing `SetEnv LC_CODEX_BACKEND=sub2api` requires:
@@ -81,8 +86,17 @@ AcceptEnv LC_CODEX_BACKEND
 ```
 
 The app sends accepted values with SSH environment requests rather than shell
-interpolation. It creates only
-`${XDG_CACHE_HOME:-$HOME/.cache}/android-ssh-codex/app-server.sock`. When the
-profile environment fingerprint changes, it validates and restarts that
-app-owned process. It does not inspect, replace, or stop the sockets and
-processes used by Codex Desktop, the CLI, or IDE extensions.
+interpolation. Every Host independently selects one app-server mode:
+
+- Shared runs `codex app-server daemon start`, parses its JSON `socketPath`, and
+  reuses that Codex-managed daemon without restarting or stopping it.
+- Custom attaches to the configured absolute Unix socket without running any
+  lifecycle command.
+- Isolated creates
+  `${XDG_CACHE_HOME:-$HOME/.cache}/android-ssh-codex/app-server.sock`. When the
+  profile environment fingerprint changes, it validates and restarts only that
+  app-owned process.
+
+Duplicate Hosts may point to the same SSH endpoint with different modes. The
+mode is authoritative: connection failures never trigger a fallback to another
+daemon or socket.
