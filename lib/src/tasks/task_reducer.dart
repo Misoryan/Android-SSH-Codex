@@ -9,18 +9,30 @@ final class TaskItem {
     required this.id,
     required this.kind,
     required this.text,
+    this.title,
+    this.detail,
     this.status,
   });
 
   final String id;
   final TaskItemKind kind;
   final String text;
+  final String? title;
+  final String? detail;
   final String? status;
 
-  TaskItem copyWith({String? text, String? status}) => TaskItem(
+  TaskItem copyWith({
+    String? text,
+    String? title,
+    String? detail,
+    String? status,
+  }) =>
+      TaskItem(
         id: id,
         kind: kind,
         text: text ?? this.text,
+        title: title ?? this.title,
+        detail: detail ?? this.detail,
         status: status ?? this.status,
       );
 }

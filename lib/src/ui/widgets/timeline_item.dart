@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../tasks/task_reducer.dart';
+import 'markdown_content.dart';
 
 class TimelineItemView extends StatelessWidget {
   const TimelineItemView({required this.item, super.key});
@@ -9,59 +10,84 @@ class TimelineItemView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return switch (item.kind) {
+      TaskItemKind.user || TaskItemKind.agent => _Message(item: item),
+      _ => _ActivityCard(item: item),
+    };
+  }
+}
+
+class _Message extends StatelessWidget {
+  const _Message({required this.item});
+
+  final TaskItem item;
+
+  @override
+  Widget build(BuildContext context) {
     final user = item.kind == TaskItemKind.user;
-    final agent = item.kind == TaskItemKind.agent;
-    final colorScheme = Theme.of(context).colorScheme;
-    if (user || agent) {
-      return Align(
-        alignment: user ? Alignment.centerRight : Alignment.centerLeft,
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 720),
-          margin: const EdgeInsets.symmetric(vertical: 5),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-          decoration: BoxDecoration(
-            color: user
-                ? colorScheme.primaryContainer
-                : colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: SelectableText(item.text),
+    final colors = Theme.of(context).colorScheme;
+    return Align(
+      alignment: user ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 720),
+        margin: const EdgeInsets.symmetric(vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          color: user ? colors.primaryContainer : colors.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(12),
         ),
-      );
-    }
+        child: MarkdownContent(text: item.text),
+      ),
+    );
+  }
+}
+
+class _ActivityCard extends StatelessWidget {
+  const _ActivityCard({required this.item});
+
+  final TaskItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final expandable = item.kind == TaskItemKind.reasoning ||
+        item.detail?.trim().isNotEmpty == true;
+    final body = item.detail?.trim().isNotEmpty == true
+        ? item.detail!.trim()
+        : item.text.trim();
+    final tile = ExpansionTile(
+      leading: Icon(_icon, size: 20, color: _color(context)),
+      title: Text(item.title ?? _label),
+      subtitle: item.kind == TaskItemKind.reasoning || item.text == body
+          ? null
+          : Text(item.text, maxLines: 2, overflow: TextOverflow.ellipsis),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (item.status != null) _StatusBadge(status: item.status!),
+          if (expandable) const Icon(Icons.expand_more),
+        ],
+      ),
+      initiallyExpanded: !expandable,
+      showTrailingIcon: false,
+      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: item.kind == TaskItemKind.reasoning
+              ? MarkdownContent(text: body)
+              : SelectableText(
+                  body,
+                  style: const TextStyle(fontFamily: 'monospace'),
+                ),
+        ),
+      ],
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          border: Border(left: BorderSide(color: _color(context), width: 3)),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(_icon, size: 18, color: _color(context)),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _label,
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    SelectableText(
-                      item.text,
-                      style: const TextStyle(fontFamily: 'monospace'),
-                    ),
-                  ],
-                ),
-              ),
-              if (item.status != null) Text(item.status!),
-            ],
-          ),
-        ),
+      child: Card(
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        child: tile,
       ),
     );
   }
@@ -88,4 +114,23 @@ class TimelineItemView extends StatelessWidget {
         TaskItemKind.tool => Theme.of(context).colorScheme.tertiary,
         _ => Theme.of(context).colorScheme.outline,
       };
+}
+
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.status});
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(status, style: Theme.of(context).textTheme.labelSmall),
+    );
+  }
 }

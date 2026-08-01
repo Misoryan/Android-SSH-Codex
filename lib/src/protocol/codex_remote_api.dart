@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import '../tasks/task_reducer.dart';
 import 'json_rpc_client.dart';
@@ -345,12 +346,116 @@ TaskItem _parseItem(Map<String, dynamic> item) {
     'reasoning' => TaskItemKind.reasoning,
     _ => TaskItemKind.notice,
   };
+  final presentation = _itemPresentation(type, item, text);
   return TaskItem(
     id: id,
     kind: kind,
-    text: text.isEmpty ? type : text,
+    title: presentation.title,
+    text: presentation.text,
+    detail: presentation.detail,
     status: item['status']?.toString(),
   );
+}
+
+_ItemPresentation _itemPresentation(
+  String type,
+  Map<String, dynamic> item,
+  String extractedText,
+) {
+  switch (type) {
+    case 'reasoning':
+      final summary = _readTextBlocks(item['summary']);
+      final content = _readTextBlocks(item['content']);
+      return _ItemPresentation(
+        title: 'Reasoning',
+        text: summary.isNotEmpty
+            ? summary
+            : content.isNotEmpty
+                ? content
+                : 'Reasoning',
+        detail: summary.isNotEmpty && content.isNotEmpty && content != summary
+            ? content
+            : null,
+      );
+    case 'commandExecution':
+      final command = _firstText(item['command']) ?? 'Command';
+      final output = _firstText(item['aggregatedOutput'], item['output']);
+      final cwd = item['cwd'] as String?;
+      return _ItemPresentation(
+        title: command,
+        text: cwd == null || cwd.isEmpty ? command : cwd,
+        detail: output,
+      );
+    case 'fileChange':
+      final changes = item['changes'] as List<dynamic>? ?? const [];
+      final lines = <String>[];
+      final diffs = <String>[];
+      for (final raw in changes) {
+        final change = _map(raw);
+        final path = change['path'] as String? ?? 'unknown file';
+        final changeKind = change['kind']?.toString() ?? 'change';
+        lines.add('$changeKind  $path');
+        final diff = change['diff'] as String?;
+        if (diff != null && diff.isNotEmpty) diffs.add('$path\n$diff');
+      }
+      return _ItemPresentation(
+        title: changes.length == 1 ? '1 file changed' : '${changes.length} files changed',
+        text: lines.isEmpty ? 'File changes' : lines.join('\n'),
+        detail: diffs.isEmpty ? null : diffs.join('\n\n'),
+      );
+    case 'mcpToolCall':
+      final server = item['server']?.toString();
+      final tool = item['tool']?.toString() ?? 'Tool';
+      return _ItemPresentation(
+        title: server == null || server.isEmpty ? tool : '$server · $tool',
+        text: tool,
+        detail: _jsonDetail(item, const ['arguments', 'result', 'error']),
+      );
+    case 'dynamicToolCall':
+      final tool = item['tool']?.toString() ?? 'Tool';
+      return _ItemPresentation(
+        title: tool,
+        text: tool,
+        detail: _jsonDetail(
+          item,
+          const ['arguments', 'contentItems', 'success'],
+        ),
+      );
+    default:
+      return _ItemPresentation(
+        text: extractedText.isEmpty ? type : extractedText,
+      );
+  }
+}
+
+String _readTextBlocks(Object? raw) {
+  if (raw is String) return raw.trim();
+  if (raw is List) {
+    return raw
+        .map((part) => part is String ? part : _map(part)['text'])
+        .whereType<String>()
+        .where((part) => part.trim().isNotEmpty)
+        .join('\n')
+        .trim();
+  }
+  return '';
+}
+
+String? _jsonDetail(Map<String, dynamic> item, List<String> keys) {
+  final detail = <String, dynamic>{};
+  for (final key in keys) {
+    if (item[key] != null) detail[key] = item[key];
+  }
+  if (detail.isEmpty) return null;
+  return const JsonEncoder.withIndent('  ').convert(detail);
+}
+
+final class _ItemPresentation {
+  const _ItemPresentation({required this.text, this.title, this.detail});
+
+  final String? title;
+  final String text;
+  final String? detail;
 }
 
 String _extractText(Map<String, dynamic> item) {
