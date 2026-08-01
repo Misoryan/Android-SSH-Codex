@@ -107,6 +107,41 @@ void main() {
     expect(find.text('No task events yet'), findsOneWidget);
   });
 
+  testWidgets('task timeline follows latest content and exposes jump control',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final items = List.generate(
+      40,
+      (index) => TaskItem(
+        id: 'message-$index',
+        kind: TaskItemKind.agent,
+        text: 'Model response $index\n\nSecond line for scrolling.',
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: TaskTimeline(items: items)),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Model response 39'), findsOneWidget);
+    expect(find.textContaining('Model response 0'), findsNothing);
+
+    await tester.drag(find.byType(ListView), const Offset(0, 900));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('jump-to-latest')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('jump-to-latest')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Model response 39'), findsOneWidget);
+    expect(find.byKey(const Key('jump-to-latest')), findsNothing);
+  });
+
   testWidgets('task command menu exposes stable commands only', (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
