@@ -127,4 +127,3 @@ the release workflow creates stable-signed APK artifacts.
 Confirm the release workflow succeeded, report the arm64 APK URL and SHA-256,
 and verify its certificate SHA-256 remains
 `1FFDC122F12EF99917F39697091BFE51334FCC985ACCCE3982A530762880EBC8`.
-

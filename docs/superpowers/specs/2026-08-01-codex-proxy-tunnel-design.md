@@ -61,4 +61,3 @@ stderr and verifies that `firstFailure` exposes the original cause. Command
 tests cover shell quoting and environment forwarding at the controller call
 site. The existing full CI matrix must pass before the stable-signed release is
 published.
-
