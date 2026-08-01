@@ -145,6 +145,31 @@ void main() {
     expect(socketPath, '/run/user/1000/codex.sock');
   });
 
+  test('custom profile rejects control characters before trimming', () async {
+    var called = false;
+    final profile = HostProfile(
+      id: 'custom-control',
+      label: 'Custom daemon',
+      hostName: 'pi.example.test',
+      user: 'pi',
+      port: 22,
+      appServerMode: AppServerMode.custom,
+      customAppServerSocket: '/run/user/1000/codex.sock\n',
+    );
+
+    await expectLater(
+      resolveCodexSocketForProfile(
+        (command, {environment}) async {
+          called = true;
+          throw StateError('must not run');
+        },
+        profile,
+      ),
+      throwsA(isA<CodexBootstrapException>()),
+    );
+    expect(called, isFalse);
+  });
+
   test('connection errors identify the SSH TCP stage and endpoint', () {
     final error = describeConnectionFailure(
       ConnectionStage.ssh,
