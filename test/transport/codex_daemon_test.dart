@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:android_ssh_codex/src/transport/codex_daemon.dart';
 import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,28 +16,38 @@ void main() {
       String? receivedCommand;
       Map<String, String>? receivedEnvironment;
 
-      Future<List<int>> runner(
+      Future<SshCommandResult> runner(
         String command, {
         Map<String, String>? environment,
       }) async {
         calls++;
         receivedCommand = command;
         receivedEnvironment = environment;
-        return const [115, 111, 99, 107, 101, 116];
+        return _result(
+          stdout: '/home/codex/.cache/android-ssh-codex/app-server.sock\n',
+        );
       }
 
-      final output = await CodexDaemon.bootstrap(
+      final socketPath = await CodexDaemon.bootstrap(
         runner,
         environment: environment,
       );
 
       expect(calls, 1);
       expect(receivedCommand, CodexDaemon.bootstrapCommand(environment));
-      expect(receivedCommand, contains(CodexDaemon.bootstrapScript));
-      expect(receivedCommand, isNot(contains('sub2api')));
-      expect(receivedCommand, isNot(contains('mobile client')));
+      final match = RegExp(
+        r"^printf '%s' '([A-Za-z0-9+/=]+)' \| base64 -d \| /bin/sh$",
+      ).firstMatch(receivedCommand!);
+      expect(match, isNotNull);
+      final script = utf8.decode(base64Decode(match!.group(1)!));
+      expect(script, contains(CodexDaemon.bootstrapScript));
+      expect(script, isNot(contains('sub2api')));
+      expect(script, isNot(contains('mobile client')));
       expect(identical(receivedEnvironment, environment), isTrue);
-      expect(output, const [115, 111, 99, 107, 101, 116]);
+      expect(
+        socketPath,
+        '/home/codex/.cache/android-ssh-codex/app-server.sock',
+      );
     },
   );
 
@@ -64,12 +76,99 @@ void main() {
     await CodexDaemon.bootstrap(
       (command, {environment}) async {
         receivedEnvironment = environment;
-        return const [];
+        return _result(
+          stdout: '/home/codex/.cache/android-ssh-codex/app-server.sock\n',
+        );
       },
       environment: const {},
     );
 
     expect(receivedEnvironment, isNull);
+  });
+
+  test('bootstrap reports a nonzero remote exit with stderr', () async {
+    await expectLater(
+      CodexDaemon.bootstrap(
+        (command, {environment}) async => _result(
+          stderr: '/bin/sh: codex: not found\n',
+          exitCode: 127,
+        ),
+        environment: const {},
+      ),
+      throwsA(
+        isA<CodexBootstrapException>()
+            .having(
+              (error) => error.message,
+              'message',
+              contains('exit code 127'),
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              contains('codex: not found'),
+            ),
+      ),
+    );
+  });
+
+  test('bootstrap reports a remote exit signal', () async {
+    await expectLater(
+      CodexDaemon.bootstrap(
+        (command, {environment}) async => _result(
+          stderr: 'terminated remotely',
+          exitCode: null,
+          exitSignal: 'KILL',
+        ),
+        environment: const {},
+      ),
+      throwsA(
+        isA<CodexBootstrapException>().having(
+          (error) => error.message,
+          'message',
+          contains('signal KILL'),
+        ),
+      ),
+    );
+  });
+
+  test(
+    'bootstrap reports diagnostic output when the socket is absent',
+    () async {
+      await expectLater(
+        CodexDaemon.bootstrap(
+          (command, {environment}) async => _result(
+            stderr: 'socket was not created',
+          ),
+          environment: const {},
+        ),
+        throwsA(
+          isA<CodexBootstrapException>().having(
+            (error) => error.message,
+            'message',
+            contains('socket was not created'),
+          ),
+        ),
+      );
+    },
+  );
+
+  test('bootstrap bounds untrusted remote diagnostics', () async {
+    Object? thrown;
+    try {
+      await CodexDaemon.bootstrap(
+        (command, {environment}) async => _result(
+          stderr: List.filled(5000, 'x').join(),
+          exitCode: 1,
+        ),
+        environment: const {},
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown, isA<CodexBootstrapException>());
+    expect(thrown.toString().length, lessThan(1400));
+    expect(thrown.toString(), endsWith('...'));
   });
 
   test(
@@ -208,3 +307,16 @@ void main() {
     expect(cleanup, greaterThan(liveFailure));
   });
 }
+
+SshCommandResult _result({
+  String stdout = '',
+  String stderr = '',
+  int? exitCode = 0,
+  String? exitSignal,
+}) =>
+    SshCommandResult(
+      stdout: utf8.encode(stdout),
+      stderr: utf8.encode(stderr),
+      exitCode: exitCode,
+      exitSignal: exitSignal,
+    );
