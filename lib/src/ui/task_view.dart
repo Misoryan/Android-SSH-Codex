@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_controller.dart';
 import '../protocol/codex_remote_api.dart';
 import '../tasks/task_reducer.dart';
+import 'composer_completion.dart';
 import 'widgets/timeline_item.dart';
 
 class TaskView extends StatefulWidget {
@@ -21,6 +22,9 @@ class _TaskViewState extends State<TaskView> {
   var _commandBusy = false;
   var _lastCommandSucceeded = true;
   RemoteSkill? _selectedSkill;
+  List<RemoteSkill>? _availableSkills;
+  List<ComposerCompletion> _completions = const [];
+  var _loadingSkills = false;
 
   @override
   void didUpdateWidget(covariant TaskView oldWidget) {
@@ -28,6 +32,8 @@ class _TaskViewState extends State<TaskView> {
     if (oldWidget.task.id != widget.task.id) {
       _composer.clear();
       _selectedSkill = null;
+      _availableSkills = null;
+      _completions = const [];
       _sending = false;
       _commandBusy = false;
     }
@@ -96,6 +102,10 @@ class _TaskViewState extends State<TaskView> {
         _Composer(
           controller: _composer,
           enabled: task.canWrite && widget.controller.isConnected && !_sending,
+          completions: _completions,
+          loadingCompletions: _loadingSkills,
+          onChanged: _updateCompletions,
+          onCompletion: _selectCompletion,
           onSend: _send,
         ),
       ],
@@ -110,7 +120,10 @@ class _TaskViewState extends State<TaskView> {
       await widget.controller.sendPrompt(text, skill: _selectedSkill);
       if (!mounted) return;
       _composer.clear();
-      setState(() => _selectedSkill = null);
+      setState(() {
+        _selectedSkill = null;
+        _completions = const [];
+      });
     } catch (exception) {
       _showError(exception);
     } finally {
@@ -126,6 +139,8 @@ class _TaskViewState extends State<TaskView> {
         await _editGoal();
       case TaskCommand.compact:
         await _compactTask();
+      case TaskCommand.interrupt:
+        await _runCommand(widget.controller.interruptSelectedTask);
     }
   }
 
@@ -133,6 +148,7 @@ class _TaskViewState extends State<TaskView> {
     final skills =
         await _runCommand(widget.controller.listSkillsForSelectedTask);
     if (!mounted || skills == null) return;
+    _availableSkills = skills;
     final selected = await showDialog<RemoteSkill>(
       context: context,
       builder: (context) => AlertDialog(
@@ -168,6 +184,66 @@ class _TaskViewState extends State<TaskView> {
     if (mounted && selected != null) {
       setState(() => _selectedSkill = selected);
     }
+  }
+
+  void _updateCompletions(String _) {
+    final cursor = _composer.selection.baseOffset;
+    final completions = composerCompletions(
+      _composer.text,
+      cursor,
+      _availableSkills ?? const [],
+    );
+    setState(() => _completions = completions.take(6).toList(growable: false));
+    if (_availableSkills == null &&
+        !_loadingSkills &&
+        hasActiveSkillCompletion(_composer.text, cursor)) {
+      _loadCompletionSkills();
+    }
+  }
+
+  Future<void> _loadCompletionSkills() async {
+    setState(() => _loadingSkills = true);
+    try {
+      final skills = await widget.controller.listSkillsForSelectedTask();
+      if (!mounted) return;
+      _availableSkills = skills;
+      _updateCompletions(_composer.text);
+    } catch (exception) {
+      _showError(exception);
+    } finally {
+      if (mounted) setState(() => _loadingSkills = false);
+    }
+  }
+
+  Future<void> _selectCompletion(ComposerCompletion completion) async {
+    final edit = removeActiveCompletionToken(
+      _composer.text,
+      _composer.selection.baseOffset,
+    );
+    _composer.value = TextEditingValue(
+      text: edit.text,
+      selection: TextSelection.collapsed(offset: edit.cursor),
+    );
+    setState(() => _completions = const []);
+    if (completion.kind == ComposerCompletionKind.skill) {
+      RemoteSkill? skill;
+      for (final candidate in _availableSkills ?? const <RemoteSkill>[]) {
+        if (r'$' + candidate.name == completion.value) {
+          skill = candidate;
+          break;
+        }
+      }
+      if (skill != null) setState(() => _selectedSkill = skill);
+      return;
+    }
+    final command = switch (completion.value) {
+      '/goal' => TaskCommand.goal,
+      '/compact' => TaskCommand.compact,
+      '/skills' => TaskCommand.skills,
+      '/interrupt' => TaskCommand.interrupt,
+      _ => null,
+    };
+    if (command != null) await _handleCommand(command);
   }
 
   Future<void> _editGoal() async {
@@ -311,7 +387,7 @@ class _TaskViewState extends State<TaskView> {
 
 enum _GoalAction { save, clear }
 
-enum TaskCommand { skills, goal, compact }
+enum TaskCommand { skills, goal, compact, interrupt }
 
 class TaskCommandMenu extends StatelessWidget {
   const TaskCommandMenu({
@@ -348,6 +424,13 @@ class TaskCommandMenu extends StatelessWidget {
             child: ListTile(
               leading: Icon(Icons.compress),
               title: Text('Compact context'),
+            ),
+          ),
+          PopupMenuItem(
+            value: TaskCommand.interrupt,
+            child: ListTile(
+              leading: Icon(Icons.stop_circle_outlined),
+              title: Text('Interrupt turn'),
             ),
           ),
         ],
@@ -565,11 +648,19 @@ class _Composer extends StatelessWidget {
   const _Composer({
     required this.controller,
     required this.enabled,
+    required this.completions,
+    required this.loadingCompletions,
+    required this.onChanged,
+    required this.onCompletion,
     required this.onSend,
   });
 
   final TextEditingController controller;
   final bool enabled;
+  final List<ComposerCompletion> completions;
+  final bool loadingCompletions;
+  final ValueChanged<String> onChanged;
+  final ValueChanged<ComposerCompletion> onCompletion;
   final VoidCallback onSend;
 
   @override
@@ -577,29 +668,91 @@ class _Composer extends StatelessWidget {
         top: false,
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  enabled: enabled,
-                  minLines: 1,
-                  maxLines: 5,
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: InputDecoration(
-                    hintText: enabled ? 'Message Codex' : 'Read-only task',
-                  ),
+              if (completions.isNotEmpty || loadingCompletions)
+                _CompletionPicker(
+                  completions: completions,
+                  loading: loadingCompletions,
+                  onSelected: onCompletion,
                 ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.filled(
-                tooltip: 'Send message',
-                onPressed: enabled ? onSend : null,
-                icon: const Icon(Icons.arrow_upward),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      enabled: enabled,
+                      onChanged: onChanged,
+                      minLines: 1,
+                      maxLines: 5,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: InputDecoration(
+                        hintText:
+                            enabled ? 'Message Codex' : 'Read-only task',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filled(
+                    tooltip: 'Send message',
+                    onPressed: enabled ? onSend : null,
+                    icon: const Icon(Icons.arrow_upward),
+                  ),
+                ],
               ),
             ],
           ),
+        ),
+      );
+}
+
+class _CompletionPicker extends StatelessWidget {
+  const _CompletionPicker({
+    required this.completions,
+    required this.loading,
+    required this.onSelected,
+  });
+
+  final List<ComposerCompletion> completions;
+  final bool loading;
+  final ValueChanged<ComposerCompletion> onSelected;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        margin: const EdgeInsets.only(bottom: 8),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 240),
+          child: loading && completions.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: LinearProgressIndicator(),
+                )
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: completions.length,
+                  itemBuilder: (context, index) {
+                    final completion = completions[index];
+                    return ListTile(
+                      dense: true,
+                      leading: Icon(
+                        completion.kind == ComposerCompletionKind.skill
+                            ? Icons.auto_awesome
+                            : Icons.keyboard_command_key,
+                      ),
+                      title: Text(completion.value),
+                      subtitle: completion.description.isEmpty
+                          ? null
+                          : Text(
+                              completion.description,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                      onTap: () => onSelected(completion),
+                    );
+                  },
+                ),
         ),
       );
 }
