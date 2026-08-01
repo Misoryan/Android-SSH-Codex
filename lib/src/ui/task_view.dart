@@ -23,6 +23,17 @@ class _TaskViewState extends State<TaskView> {
   RemoteSkill? _selectedSkill;
 
   @override
+  void didUpdateWidget(covariant TaskView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.task.id != widget.task.id) {
+      _composer.clear();
+      _selectedSkill = null;
+      _sending = false;
+      _commandBusy = false;
+    }
+  }
+
+  @override
   void dispose() {
     _composer.dispose();
     super.dispose();

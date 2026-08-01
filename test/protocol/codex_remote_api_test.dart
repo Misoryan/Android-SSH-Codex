@@ -270,6 +270,43 @@ void main() {
     }
   });
 
+  test('clears a goal and starts stable context compaction', () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    final api = CodexRemoteApi(rpc);
+    try {
+      final clearing = api.clearThreadGoal('thr_1');
+      final clearRequest =
+          jsonDecode(transport.sent.single) as Map<String, dynamic>;
+      expect(clearRequest, {
+        'method': 'thread/goal/clear',
+        'id': 1,
+        'params': {'threadId': 'thr_1'},
+      });
+      transport.incoming.add(jsonEncode({
+        'id': clearRequest['id'],
+        'result': <String, dynamic>{},
+      }));
+      await clearing;
+
+      final compacting = api.compactThread('thr_1');
+      final compactRequest =
+          jsonDecode(transport.sent[1]) as Map<String, dynamic>;
+      expect(compactRequest, {
+        'method': 'thread/compact/start',
+        'id': 2,
+        'params': {'threadId': 'thr_1'},
+      });
+      transport.incoming.add(jsonEncode({
+        'id': compactRequest['id'],
+        'result': <String, dynamic>{},
+      }));
+      await compacting;
+    } finally {
+      await rpc.close();
+    }
+  });
+
   test('preserves unknown items as visible activity instead of dropping them',
       () {
     final snapshot = CodexRemoteApi.parseThread({

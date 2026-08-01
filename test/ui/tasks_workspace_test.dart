@@ -1,3 +1,4 @@
+import 'package:android_ssh_codex/src/app_controller.dart';
 import 'package:android_ssh_codex/src/projects/remote_project.dart';
 import 'package:android_ssh_codex/src/tasks/task_reducer.dart';
 import 'package:android_ssh_codex/src/ui/task_view.dart';
@@ -123,5 +124,34 @@ void main() {
     expect(find.text('Goal'), findsOneWidget);
     expect(find.text('Compact context'), findsOneWidget);
     expect(find.textContaining('Experimental'), findsNothing);
+  });
+
+  testWidgets('switching tasks clears the previous composer draft',
+      (tester) async {
+    final controller = AppController.memory();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: TaskView(
+          controller: controller,
+          task: task('first', 'First task', '/srv/mobile'),
+        ),
+      ),
+    ));
+    tester.widget<TextField>(find.byType(TextField)).controller!.text =
+        'draft for first task';
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: TaskView(
+          controller: controller,
+          task: task('second', 'Second task', '/srv/mobile'),
+        ),
+      ),
+    ));
+
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      isEmpty,
+    );
   });
 }
