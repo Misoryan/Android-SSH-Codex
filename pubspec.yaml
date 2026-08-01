@@ -1,6 +1,6 @@
 name: android_ssh_codex
 description: A mobile Codex UI that controls a remote Codex app-server over SSH.
-version: 0.2.0+12
+version: 0.3.0+13
 publish_to: none
 
 environment:

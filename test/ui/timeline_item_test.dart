@@ -47,6 +47,16 @@ void main() {
     expect(find.text('Inspecting the dependency graph'), findsOneWidget);
   });
 
+  testWidgets('single-line display formulas render without dollar delimiters',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(body: MarkdownContent(text: r'$$x^2 + y^2 = z^2$$')),
+    ));
+
+    expect(find.text('x^2 + y^2 = z^2'), findsOneWidget);
+    expect(find.text(r'$$x^2 + y^2 = z^2$$'), findsNothing);
+  });
+
   testWidgets('tool card separates identity, status, and verbose detail',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(

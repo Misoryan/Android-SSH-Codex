@@ -19,12 +19,14 @@ class FormulaBlockSyntax extends md.BlockSyntax {
   FormulaBlockSyntax();
 
   @override
-  RegExp get pattern => RegExp(r'^(?:\$\$\s*|\\\[(.*)\\\]\s*)$');
+  RegExp get pattern =>
+      RegExp(r'^(?:\$\$(.+)\$\$\s*|\$\$\s*|\\\[(.*)\\\]\s*)$');
 
   @override
   md.Node parse(md.BlockParser parser) {
     final first = pattern.firstMatch(parser.current.content);
-    if (first?.group(1) case final inline?) {
+    final inline = first?.group(1) ?? first?.group(2);
+    if (inline != null) {
       parser.advance();
       return _formulaParagraph(inline);
     }
