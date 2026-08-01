@@ -436,7 +436,9 @@ _ItemPresentation _itemPresentation(
         if (diff != null && diff.isNotEmpty) diffs.add('$path\n$diff');
       }
       return _ItemPresentation(
-        title: changes.length == 1 ? '1 file changed' : '${changes.length} files changed',
+        title: changes.length == 1
+            ? '1 file changed'
+            : '${changes.length} files changed',
         text: lines.isEmpty ? 'File changes' : lines.join('\n'),
         detail: diffs.isEmpty ? null : diffs.join('\n\n'),
       );
