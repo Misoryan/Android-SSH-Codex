@@ -51,13 +51,19 @@ final class CodexDaemon {
     return "printf '%s' '$payload' | base64 -d | /bin/sh";
   }
 
+  static String _shellCommandPreservingStdin(String script) {
+    final payload = base64Encode(utf8.encode(script));
+    return "/bin/sh -c 'exec /bin/sh -c \"\$(printf %s $payload | base64 -d)\"'";
+  }
+
   static String bootstrapCommand(Map<String, String> environment) =>
       _shellCommand(_bootstrapPayload(environment));
 
   static String get sharedStartCommand =>
       _shellCommand('exec codex app-server daemon start');
 
-  static String proxyCommand(String socketPath) => _shellCommand(
+  static String proxyCommand(String socketPath) =>
+      _shellCommandPreservingStdin(
         'exec codex app-server proxy --sock ${_shellQuote(socketPath)}',
       );
 
