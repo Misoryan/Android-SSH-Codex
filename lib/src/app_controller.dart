@@ -4,9 +4,11 @@ import 'package:flutter/foundation.dart';
 
 import 'profiles/host_profile.dart';
 import 'profiles/profile_store.dart';
+import 'projects/remote_project.dart';
 import 'protocol/codex_remote_api.dart';
 import 'protocol/json_rpc_client.dart';
 import 'protocol/websocket_rpc_transport.dart';
+import 'tasks/task_catalog.dart';
 import 'tasks/task_reducer.dart';
 import 'transport/codex_daemon.dart';
 import 'transport/ssh_connector.dart';
@@ -69,11 +71,15 @@ final class AppController extends ChangeNotifier {
   final ProfileStore _store;
   final SshConnector _connector;
   final TaskReducer _taskReducer = TaskReducer();
+  final TaskCatalog _taskCatalog = TaskCatalog();
+  final TaskDetailLoadState _detailLoadState = TaskDetailLoadState();
 
   List<HostProfile> _profiles = const [];
+  List<RemoteProject> _projects = const [];
   AppSection _section = AppSection.hosts;
   RemoteConnectionPhase _connectionPhase = RemoteConnectionPhase.disconnected;
   String? _selectedHostId;
+  String? _selectedProjectId;
   String? _selectedTaskId;
   final Map<String, String> _activeTurnIds = {};
   String? _error;
@@ -95,25 +101,53 @@ final class AppController extends ChangeNotifier {
   var _reconnectAttempt = 0;
   var _refreshing = false;
   var _refreshQueued = false;
+  var _refreshQueuedResetPages = false;
+  var _loadingProjectPage = false;
+  var _loadingUnassignedPage = false;
 
   List<HostProfile> get profiles => _profiles;
+  List<RemoteProject> get projects => _projects;
   AppSection get section => _section;
   RemoteConnectionPhase get connectionPhase => _connectionPhase;
   String? get selectedHostId => _selectedHostId;
+  String? get selectedProjectId => _selectedProjectId;
   String? get selectedTaskId => _selectedTaskId;
   String? get error => _error;
   HostKeyChallenge? get hostKeyChallenge => _hostKeyChallenge;
   List<PendingApproval> get approvals => _approvals;
   TaskState get taskState => _taskReducer.state;
+  bool get unassignedExpanded => _taskCatalog.unassignedExpanded;
+  bool get hasMoreProjectTasks => _taskCatalog.projectNextCursor != null;
+  bool get hasMoreUnassignedTasks => _taskCatalog.unassignedNextCursor != null;
+  bool get isLoadingProjectPage => _loadingProjectPage;
+  bool get isLoadingUnassignedPage => _loadingUnassignedPage;
 
   HostProfile? get selectedHost =>
       _profiles.where((profile) => profile.id == _selectedHostId).firstOrNull;
+
+  RemoteProject? get selectedProject => _selectedProjectId == null
+      ? null
+      : _projects
+          .where((project) => project.id == _selectedProjectId)
+          .firstOrNull;
+
+  List<TaskRecord> get projectTasks =>
+      _tasksForIds(_taskCatalog.projectTaskIds);
+
+  List<TaskRecord> get unassignedTasks =>
+      _tasksForIds(_taskCatalog.unassignedTaskIds);
 
   TaskRecord? get selectedTask => _selectedTaskId == null
       ? null
       : _taskReducer.state.tasks[_selectedTaskId];
 
   bool get isConnected => _connectionPhase == RemoteConnectionPhase.connected;
+
+  bool isTaskDetailLoading(String taskId) =>
+      _detailLoadState.loadingTaskId == taskId;
+
+  String? taskDetailError(String taskId) =>
+      _detailLoadState.taskId == taskId ? _detailLoadState.error : null;
 
   Future<void> initialize() async {
     try {
@@ -183,7 +217,16 @@ final class AppController extends ChangeNotifier {
     try {
       final secret = await _store.readSecret(profile.id);
       final ownedThreadIds = await _store.readOwnedThreads(profile.id);
+      final projects = reconnecting
+          ? _projects
+          : await _store.readProjects(profile.id);
       if (attempt != _connectionAttempt) return;
+      if (!reconnecting) {
+        _projects = projects;
+        _selectedProjectId = projects.firstOrNull?.id;
+        _taskCatalog.clear();
+        _detailLoadState.clear();
+      }
       stage = ConnectionStage.ssh;
       ssh = await _connector.connect(
         profile,
@@ -249,12 +292,12 @@ final class AppController extends ChangeNotifier {
       published = true;
       unawaited(rpc.done.then((_) => _handleTransportLoss(attempt, profile)));
       stage = ConnectionStage.refresh;
-      await refreshTasks(throwOnError: true);
+      await refreshTasks(throwOnError: true, resetPages: true);
       if (attempt != _connectionAttempt) return;
       _connectionPhase = RemoteConnectionPhase.connected;
       _reconnectAttempt = 0;
       _refreshTimer = Timer.periodic(
-        const Duration(seconds: 3),
+        const Duration(seconds: 10),
         (_) => unawaited(refreshTasks()),
       );
     } catch (exception, stackTrace) {
@@ -343,7 +386,10 @@ final class AppController extends ChangeNotifier {
     if (completer != null && !completer.isCompleted) completer.complete(false);
   }
 
-  Future<void> refreshTasks({bool throwOnError = false}) async {
+  Future<void> refreshTasks({
+    bool throwOnError = false,
+    bool resetPages = false,
+  }) async {
     final api = _api;
     final epoch = _epoch;
     final connecting = _connectionPhase == RemoteConnectionPhase.connecting ||
@@ -351,39 +397,76 @@ final class AppController extends ChangeNotifier {
     if (api == null || (!isConnected && !connecting)) return;
     if (_refreshing) {
       _refreshQueued = true;
+      _refreshQueuedResetPages = _refreshQueuedResetPages || resetPages;
       return;
     }
     _refreshing = true;
+    var resetNext = resetPages;
     try {
       do {
+        final shouldResetPages = resetNext;
+        resetNext = false;
         _refreshQueued = false;
+        _refreshQueuedResetPages = false;
+        final project = selectedProject;
+        final selectedProjectId = project?.id;
         final token = _taskReducer.beginRefresh(epoch);
-        final batch = await api.readTaskBatch();
+        final loadedFuture = api.readLoadedThreadIds();
+        final unassignedFuture = api.readTaskPage();
+        final projectFuture = project == null
+            ? Future<RemoteTaskPage?>.value()
+            : api.readTaskPage(cwd: project.cwd);
+        final loadedThreadIds = await loadedFuture;
+        final unassignedPage = await unassignedFuture;
+        final projectPage = await projectFuture;
         if (api != _api || epoch != _epoch) return;
-        final snapshots = {for (final task in batch.tasks) task.id: task};
-        final loadedByUs = batch.loadedThreadIds.intersection(_ownedThreadIds);
-        final detailIds = <String>{
-          if (_selectedTaskId != null) _selectedTaskId!,
-          for (final task in batch.tasks)
-            if ((task.status == TaskStatus.running ||
-                    task.status == TaskStatus.queued) &&
-                !loadedByUs.contains(task.id))
-              task.id,
-        };
-        final details = await Future.wait(detailIds.map((id) async {
-          try {
-            return await api.readThread(id);
-          } catch (_) {
-            return null;
-          }
-        }));
-        if (api != _api || epoch != _epoch) return;
-        for (final detail in details.whereType<TaskSnapshot>()) {
-          snapshots[detail.id] = detail;
+        if (selectedProjectId != _selectedProjectId) {
+          resetNext = true;
+          continue;
         }
-        _loadedThreadIds = batch.loadedThreadIds;
-        _taskReducer.applyRefresh(token, snapshots.values.toList(), loadedByUs);
+        final snapshots = <String, TaskSnapshot>{
+          for (final task in unassignedPage.tasks) task.id: task,
+          if (projectPage != null)
+            for (final task in projectPage.tasks) task.id: task,
+        };
+        final loadedByUs = loadedThreadIds.intersection(_ownedThreadIds);
+        _loadedThreadIds = loadedThreadIds;
+        _taskReducer.applyRefresh(
+          token,
+          snapshots.values.toList(growable: false),
+          loadedByUs,
+          retainExisting: !shouldResetPages,
+        );
+        if (projectPage == null) {
+          _taskCatalog.clearProjectPage();
+        } else if (shouldResetPages) {
+          _taskCatalog.replaceProjectPage(
+            projectPage.tasks,
+            nextCursor: projectPage.nextCursor,
+          );
+        } else {
+          _taskCatalog.mergeProjectHead(
+            projectPage.tasks,
+            nextCursor: projectPage.nextCursor,
+          );
+        }
+        if (shouldResetPages) {
+          _taskCatalog.replaceUnassignedPage(
+            unassignedPage.tasks,
+            projects: _projects,
+            nextCursor: unassignedPage.nextCursor,
+          );
+        } else {
+          _taskCatalog.mergeUnassignedHead(
+            unassignedPage.tasks,
+            projects: _projects,
+            nextCursor: unassignedPage.nextCursor,
+          );
+        }
         notifyListeners();
+        if (_refreshQueued) {
+          resetNext = _refreshQueuedResetPages;
+        }
       } while (_refreshQueued && isConnected);
     } catch (exception) {
       if (throwOnError) rethrow;
@@ -397,13 +480,182 @@ final class AppController extends ChangeNotifier {
   Future<void> selectTask(String taskId) async {
     _selectedTaskId = taskId;
     _section = AppSection.tasks;
-    notifyListeners();
-    await refreshTasks();
+    await _loadTaskDetails(taskId);
   }
 
   void clearSelectedTask() {
     _selectedTaskId = null;
+    _detailLoadState.clear();
     notifyListeners();
+  }
+
+  Future<void> retrySelectedTaskDetails() async {
+    final taskId = _selectedTaskId;
+    if (taskId != null) await _loadTaskDetails(taskId);
+  }
+
+  Future<void> _loadTaskDetails(String taskId) async {
+    final api = _api;
+    final epoch = _epoch;
+    if (api == null || !isConnected) return;
+    final generation = _detailLoadState.begin(taskId);
+    notifyListeners();
+    try {
+      final detail = await api.readThread(taskId);
+      if (api != _api || epoch != _epoch) return;
+      final loadedByUs = _loadedThreadIds.intersection(_ownedThreadIds);
+      _taskReducer.applySnapshot(epoch, detail, loadedByUs);
+      _detailLoadState.complete(generation);
+    } catch (exception) {
+      if (api != _api || epoch != _epoch) return;
+      _detailLoadState.fail(generation, _friendlyError(exception));
+    }
+    notifyListeners();
+  }
+
+  Future<void> selectProject(String? projectId) async {
+    if (projectId != null &&
+        !_projects.any((project) => project.id == projectId)) {
+      return;
+    }
+    if (_selectedProjectId == projectId) return;
+    _selectedProjectId = projectId;
+    _selectedTaskId = null;
+    _detailLoadState.clear();
+    _taskCatalog.clearProjectPage();
+    notifyListeners();
+    await refreshTasks(resetPages: true);
+  }
+
+  Future<void> saveProject({
+    String? projectId,
+    required String name,
+    required String cwd,
+  }) async {
+    final hostId = _selectedHostId;
+    if (hostId == null) throw StateError('Connect to a host first.');
+    final normalizedName = name.trim();
+    final normalizedCwd = normalizeRemoteCwd(cwd);
+    if (normalizedName.isEmpty || normalizedCwd.isEmpty) {
+      throw ArgumentError('Project name and remote directory are required.');
+    }
+    final matchingCwd = _projects
+        .where((project) =>
+            normalizeRemoteCwd(project.cwd) == normalizedCwd)
+        .firstOrNull;
+    final id = projectId ??
+        matchingCwd?.id ??
+        '$hostId-${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}';
+    await _store.writeProject(
+      RemoteProject(
+        id: id,
+        hostId: hostId,
+        name: normalizedName,
+        cwd: normalizedCwd,
+      ),
+    );
+    _projects = await _store.readProjects(hostId);
+    _selectedProjectId = id;
+    _selectedTaskId = null;
+    _detailLoadState.clear();
+    _taskCatalog.clearProjectPage();
+    notifyListeners();
+    await refreshTasks(resetPages: true);
+  }
+
+  Future<void> deleteProject(String projectId) async {
+    final hostId = _selectedHostId;
+    if (hostId == null) return;
+    await _store.deleteProject(hostId, projectId);
+    _projects = await _store.readProjects(hostId);
+    if (_selectedProjectId == projectId) {
+      _selectedProjectId = _projects.firstOrNull?.id;
+      _selectedTaskId = null;
+      _detailLoadState.clear();
+      _taskCatalog.clearProjectPage();
+    }
+    notifyListeners();
+    await refreshTasks(resetPages: true);
+  }
+
+  void toggleUnassigned() {
+    _taskCatalog.toggleUnassigned();
+    notifyListeners();
+  }
+
+  Future<void> loadMoreProjectTasks() async {
+    final api = _api;
+    final project = selectedProject;
+    final cursor = _taskCatalog.projectNextCursor;
+    final epoch = _epoch;
+    if (api == null ||
+        !isConnected ||
+        project == null ||
+        cursor == null ||
+        _loadingProjectPage) {
+      return;
+    }
+    _loadingProjectPage = true;
+    notifyListeners();
+    try {
+      final page = await api.readTaskPage(cwd: project.cwd, cursor: cursor);
+      if (api != _api ||
+          epoch != _epoch ||
+          project.id != _selectedProjectId) {
+        return;
+      }
+      final token = _taskReducer.beginRefresh(epoch);
+      _taskReducer.applyRefresh(
+        token,
+        page.tasks,
+        _loadedThreadIds.intersection(_ownedThreadIds),
+        retainExisting: true,
+      );
+      _taskCatalog.appendProjectPage(
+        page.tasks,
+        nextCursor: page.nextCursor,
+      );
+    } catch (exception) {
+      _error = _friendlyError(exception);
+    } finally {
+      _loadingProjectPage = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadMoreUnassignedTasks() async {
+    final api = _api;
+    final cursor = _taskCatalog.unassignedNextCursor;
+    final epoch = _epoch;
+    if (api == null ||
+        !isConnected ||
+        cursor == null ||
+        _loadingUnassignedPage) {
+      return;
+    }
+    _loadingUnassignedPage = true;
+    notifyListeners();
+    try {
+      final page = await api.readTaskPage(cursor: cursor);
+      if (api != _api || epoch != _epoch) return;
+      final token = _taskReducer.beginRefresh(epoch);
+      _taskReducer.applyRefresh(
+        token,
+        page.tasks,
+        _loadedThreadIds.intersection(_ownedThreadIds),
+        retainExisting: true,
+      );
+      _taskCatalog.appendUnassignedPage(
+        page.tasks,
+        projects: _projects,
+        nextCursor: page.nextCursor,
+      );
+    } catch (exception) {
+      _error = _friendlyError(exception);
+    } finally {
+      _loadingUnassignedPage = false;
+      notifyListeners();
+    }
   }
 
   Future<void> startNewTask(
@@ -432,7 +684,7 @@ final class AppController extends ChangeNotifier {
     notifyListeners();
     await api.startTurn(threadId, prompt);
     if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
-    await refreshTasks();
+    await refreshTasks(resetPages: true);
   }
 
   Future<void> sendPrompt(String prompt) async {
@@ -534,6 +786,9 @@ final class AppController extends ChangeNotifier {
     } else if (notification.method == 'turn/completed' && threadId != null) {
       _activeTurnIds.remove(threadId);
       unawaited(refreshTasks());
+      if (threadId == _selectedTaskId) {
+        unawaited(_loadTaskDetails(threadId));
+      }
     }
     notifyListeners();
   }
@@ -564,6 +819,10 @@ final class AppController extends ChangeNotifier {
     _reconnectTimer = null;
     _connectionPhase = RemoteConnectionPhase.disconnected;
     _selectedTaskId = null;
+    _selectedProjectId = null;
+    _projects = const [];
+    _taskCatalog.clear();
+    _detailLoadState.clear();
     _activeTurnIds.clear();
     _loadedThreadIds = {};
     _ownedThreadIds = {};
@@ -572,6 +831,11 @@ final class AppController extends ChangeNotifier {
     await _closeTransport();
     notifyListeners();
   }
+
+  List<TaskRecord> _tasksForIds(List<String> ids) => ids
+      .map((id) => _taskReducer.state.tasks[id])
+      .whereType<TaskRecord>()
+      .toList(growable: false);
 
   Future<void> _closeTransport() async {
     _refreshTimer?.cancel();
