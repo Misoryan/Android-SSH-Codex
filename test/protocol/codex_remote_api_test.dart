@@ -1,8 +1,60 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:android_ssh_codex/src/protocol/codex_remote_api.dart';
+import 'package:android_ssh_codex/src/protocol/json_rpc_client.dart';
+import 'package:android_ssh_codex/src/protocol/rpc_transport.dart';
 import 'package:android_ssh_codex/src/tasks/task_reducer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+final class _RecordingTransport implements RpcTransport {
+  final incoming = StreamController<String>();
+  final sent = <String>[];
+
+  @override
+  Stream<String> get messages => incoming.stream;
+
+  @override
+  void send(String message) => sent.add(message);
+
+  @override
+  Future<void> close() async {
+    if (!incoming.isClosed) await incoming.close();
+  }
+}
+
 void main() {
+  test('loaded thread list sends an explicit empty params object', () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    try {
+      final batch = CodexRemoteApi(rpc).readTaskBatch();
+      final listRequest =
+          jsonDecode(transport.sent.single) as Map<String, dynamic>;
+      transport.incoming.add(jsonEncode({
+        'id': listRequest['id'],
+        'result': {'data': []},
+      }));
+      await pumpEventQueue();
+
+      final loadedRequest =
+          jsonDecode(transport.sent[1]) as Map<String, dynamic>;
+      transport.incoming.add(jsonEncode({
+        'id': loadedRequest['id'],
+        'result': {'data': []},
+      }));
+      await batch;
+
+      expect(loadedRequest, {
+        'method': 'thread/loaded/list',
+        'id': 2,
+        'params': <String, dynamic>{},
+      });
+    } finally {
+      await rpc.close();
+    }
+  });
+
   test('maps a persisted Codex thread to a task snapshot', () {
     final snapshot = CodexRemoteApi.parseThread({
       'id': 'thr_1',
