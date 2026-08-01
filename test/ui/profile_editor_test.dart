@@ -4,6 +4,70 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('host editor exposes all app-server modes', (tester) async {
+    await _openEditor(tester, profile: _profile());
+    await _scrollTo(tester, 'Shared');
+
+    expect(find.text('Shared'), findsOneWidget);
+    expect(find.text('Custom'), findsOneWidget);
+    expect(find.text('Isolated'), findsOneWidget);
+  });
+
+  testWidgets('custom mode requires an absolute Unix socket', (tester) async {
+    final result = await _openEditor(tester, profile: _profile());
+    await _scrollTo(tester, 'Custom');
+    await tester.tap(find.text('Custom'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      _fieldFinder('App-server Unix socket'),
+      'relative.sock',
+    );
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enter an absolute Unix socket path.'), findsOneWidget);
+    expect(result(), isNull);
+
+    await tester.enterText(
+      _fieldFinder('App-server Unix socket'),
+      '/run/user/1000/codex.sock',
+    );
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(result(), isNotNull);
+    expect(result()!.profile.appServerMode, AppServerMode.custom);
+    expect(
+      result()!.profile.customAppServerSocket,
+      '/run/user/1000/codex.sock',
+    );
+  });
+
+  testWidgets('SSH import preserves the selected app-server mode',
+      (tester) async {
+    final profile = _profile(
+      appServerMode: AppServerMode.custom,
+      customAppServerSocket: '/tmp/custom.sock',
+    );
+    await _openEditor(tester, profile: profile);
+    await tester.tap(find.text('Import SSH config'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      _fieldFinder('~/.ssh/config contents'),
+      'Host pi\n  HostName 192.0.2.20\n  User codex\n',
+    );
+    await tester.enterText(_fieldFinder('Host alias'), 'pi');
+    await tester.tap(find.text('Import'));
+    await tester.pumpAndSettle();
+    await _scrollTo(tester, 'App-server Unix socket');
+
+    expect(
+      _textField(tester, 'App-server Unix socket').controller!.text,
+      '/tmp/custom.sock',
+    );
+  });
+
   testWidgets('ProxyJump profiles expose independent credentials', (
     tester,
   ) async {
@@ -158,7 +222,11 @@ Host pi
   });
 }
 
-HostProfile _profile({Map<String, String> environment = const {}}) =>
+HostProfile _profile({
+  Map<String, String> environment = const {},
+  AppServerMode appServerMode = AppServerMode.shared,
+  String? customAppServerSocket,
+}) =>
     HostProfile(
       id: 'pi',
       label: 'Raspberry Pi',
@@ -166,6 +234,8 @@ HostProfile _profile({Map<String, String> environment = const {}}) =>
       user: 'codex',
       port: 22,
       environment: environment,
+      appServerMode: appServerMode,
+      customAppServerSocket: customAppServerSocket,
     );
 
 Future<ProfileDraft? Function()> _openEditor(
@@ -206,6 +276,15 @@ Future<void> _openAdvancedSsh(WidgetTester tester) async {
     scrollable: find.byType(Scrollable).first,
   );
   await tester.tap(advanced);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _scrollTo(WidgetTester tester, String text) async {
+  await tester.scrollUntilVisible(
+    find.text(text),
+    200,
+    scrollable: find.byType(Scrollable).first,
+  );
   await tester.pumpAndSettle();
 }
 

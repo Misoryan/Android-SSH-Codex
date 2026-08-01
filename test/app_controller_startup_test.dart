@@ -47,7 +47,7 @@ void main() {
   );
 
   test(
-    'profile bootstrap applies the selected profile environment',
+    'isolated profile bootstrap applies the selected profile environment',
     () async {
       final profile = HostProfile(
         id: 'raspberry-pi',
@@ -55,6 +55,7 @@ void main() {
         hostName: 'pi.example.test',
         user: 'pi',
         port: 22,
+        appServerMode: AppServerMode.isolated,
         environment: const {
           'LC_CODEX_BACKEND': 'sub2api',
           'CODEX_TOKEN': 'secret-value',
@@ -63,7 +64,7 @@ void main() {
       String? receivedCommand;
       Map<String, String>? receivedEnvironment;
 
-      final socketPath = await bootstrapCodexForProfile(
+      final socketPath = await resolveCodexSocketForProfile(
         (command, {environment}) async {
           receivedCommand = command;
           receivedEnvironment = environment;
@@ -90,6 +91,59 @@ void main() {
       );
     },
   );
+
+  test('shared profile resolves the daemon-reported control socket', () async {
+    final profile = HostProfile(
+      id: 'shared',
+      label: 'Shared daemon',
+      hostName: 'pi.example.test',
+      user: 'pi',
+      port: 22,
+      appServerMode: AppServerMode.shared,
+    );
+
+    final socketPath = await resolveCodexSocketForProfile(
+      (command, {environment}) async => SshCommandResult(
+        stdout: utf8.encode(
+          '{"socketPath":"/home/pi/.codex/app-server-control/'
+          'app-server-control.sock"}\n',
+        ),
+        stderr: const [],
+        exitCode: 0,
+        exitSignal: null,
+      ),
+      profile,
+    );
+
+    expect(
+      socketPath,
+      '/home/pi/.codex/app-server-control/app-server-control.sock',
+    );
+  });
+
+  test('custom profile returns its socket without running a command', () async {
+    var called = false;
+    final profile = HostProfile(
+      id: 'custom',
+      label: 'Custom daemon',
+      hostName: 'pi.example.test',
+      user: 'pi',
+      port: 22,
+      appServerMode: AppServerMode.custom,
+      customAppServerSocket: '/run/user/1000/codex.sock',
+    );
+
+    final socketPath = await resolveCodexSocketForProfile(
+      (command, {environment}) async {
+        called = true;
+        throw StateError('must not run');
+      },
+      profile,
+    );
+
+    expect(called, isFalse);
+    expect(socketPath, '/run/user/1000/codex.sock');
+  });
 
   test('connection errors identify the SSH TCP stage and endpoint', () {
     final error = describeConnectionFailure(

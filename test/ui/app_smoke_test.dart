@@ -89,4 +89,42 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('host cards identify independently configured app-server modes',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final controller = AppController.memory();
+    await controller.saveProfile(
+      HostProfile(
+        id: 'shared',
+        label: 'Shared Pi',
+        hostName: '192.0.2.10',
+        user: 'codex',
+        port: 22,
+        appServerMode: AppServerMode.shared,
+      ),
+      const HostSecret(password: 'secret'),
+    );
+    await controller.saveProfile(
+      HostProfile(
+        id: 'isolated',
+        label: 'Isolated Pi',
+        hostName: '192.0.2.10',
+        user: 'codex',
+        port: 22,
+        appServerMode: AppServerMode.isolated,
+      ),
+      const HostSecret(password: 'secret'),
+    );
+
+    await tester.pumpWidget(AndroidSshCodexApp(controller: controller));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Shared app-server'), findsOneWidget);
+    expect(find.text('Isolated app-server'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

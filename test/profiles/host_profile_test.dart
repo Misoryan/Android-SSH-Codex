@@ -20,6 +20,8 @@ Host pi
     expect(profile.user, 'codex');
     expect(profile.port, 2222);
     expect(profile.identityFileHint, '~/.ssh/pi');
+    expect(profile.appServerMode, AppServerMode.shared);
+    expect(profile.customAppServerSocket, isNull);
     expect(profile.environment, {
       'LC_CODEX_BACKEND': 'sub2api',
       'CODEX_LABEL': 'mobile client',
@@ -55,6 +57,8 @@ Host work
       port: 22,
       authMethod: HostAuthMethod.privateKey,
       identityFileHint: '~/.ssh/id_ed25519',
+      appServerMode: AppServerMode.custom,
+      customAppServerSocket: '/run/user/1000/codex.sock',
       environment: const {
         'LC_CODEX_BACKEND': 'sub2api',
         'CODEX_LABEL': 'mobile client',
@@ -66,6 +70,11 @@ Host work
       'LC_CODEX_BACKEND': 'sub2api',
       'CODEX_LABEL': 'mobile client',
     });
+    expect(profile.toJson()['appServerMode'], 'custom');
+    expect(
+      profile.toJson()['customAppServerSocket'],
+      '/run/user/1000/codex.sock',
+    );
     expect(profile.toJson().keys, isNot(contains('password')));
     expect(profile.toJson().keys, isNot(contains('privateKey')));
   });
@@ -81,7 +90,60 @@ Host work
     });
 
     expect(profile.environment, isEmpty);
+    expect(profile.appServerMode, AppServerMode.shared);
+    expect(profile.customAppServerSocket, isNull);
     expect(profile.toJson(), isNot(contains('environment')));
+  });
+
+  test('copyWith replaces mode and can clear a custom socket', () {
+    final profile = HostProfile(
+      id: 'host-1',
+      label: 'Workstation',
+      hostName: 'dev.example',
+      user: 'coder',
+      port: 22,
+      appServerMode: AppServerMode.custom,
+      customAppServerSocket: '/tmp/custom.sock',
+    );
+
+    final isolated = profile.copyWith(
+      appServerMode: AppServerMode.isolated,
+      clearCustomAppServerSocket: true,
+    );
+
+    expect(isolated.appServerMode, AppServerMode.isolated);
+    expect(isolated.customAppServerSocket, isNull);
+    expect(isolated.toJson()['appServerMode'], 'isolated');
+    expect(isolated.toJson(), isNot(contains('customAppServerSocket')));
+  });
+
+  test('mode and custom socket participate in equality', () {
+    HostProfile profile(
+      AppServerMode mode, {
+      String? socket,
+    }) =>
+        HostProfile(
+          id: 'same-id',
+          label: 'Same endpoint',
+          hostName: 'host.example',
+          user: 'codex',
+          port: 22,
+          appServerMode: mode,
+          customAppServerSocket: socket,
+        );
+
+    final shared = profile(AppServerMode.shared);
+    final isolated = profile(AppServerMode.isolated);
+    final custom = profile(AppServerMode.custom, socket: '/tmp/one.sock');
+    final otherCustom = profile(
+      AppServerMode.custom,
+      socket: '/tmp/two.sock',
+    );
+
+    expect(shared, isNot(isolated));
+    expect(custom, isNot(otherCustom));
+    expect(custom.appServerModeLabel, 'Custom socket');
+    expect(isolated.appServerModeLabel, 'Isolated app-server');
   });
 
   test('copyWith can replace and clear an environment', () {

@@ -82,6 +82,124 @@ void main() {
     );
   });
 
+  test('shared mode parses the daemon lifecycle socket and forwards env',
+      () async {
+    const environment = {'LC_CODEX_BACKEND': 'sub2api'};
+    String? receivedCommand;
+    Map<String, String>? receivedEnvironment;
+
+    final socket = await CodexDaemon.startShared(
+      (command, {environment}) async {
+        receivedCommand = command;
+        receivedEnvironment = environment;
+        return _result(
+          stdout: '{"backend":"pid","socketPath":'
+              '"/home/codex/.codex/app-server-control/'
+              'app-server-control.sock","cliVersion":"0.146.0",'
+              '"started":true}\n',
+          stderr: 'non-fatal warning\n',
+        );
+      },
+      environment: environment,
+    );
+
+    expect(
+      _decodeShellWrapper(receivedCommand!),
+      'exec codex app-server daemon start',
+    );
+    expect(identical(receivedEnvironment, environment), isTrue);
+    expect(
+      socket,
+      '/home/codex/.codex/app-server-control/app-server-control.sock',
+    );
+  });
+
+  for (final invalid in <String, String>{
+    'malformed JSON': 'not-json',
+    'missing socketPath': '{"backend":"pid"}',
+    'relative socketPath': '{"socketPath":"relative.sock"}',
+    'control character': '{"socketPath":"/tmp/bad\\n.sock"}',
+  }.entries) {
+    test('shared mode rejects ${invalid.key}', () async {
+      await expectLater(
+        CodexDaemon.startShared(
+          (command, {environment}) async => _result(stdout: invalid.value),
+          environment: const {},
+        ),
+        throwsA(
+          isA<CodexBootstrapException>().having(
+            (error) => error.message,
+            'message',
+            contains('Shared app-server'),
+          ),
+        ),
+      );
+    });
+  }
+
+  test('shared mode reports daemon failure without isolated bootstrap',
+      () async {
+    var calls = 0;
+
+    await expectLater(
+      CodexDaemon.startShared(
+        (command, {environment}) async {
+          calls++;
+          return _result(
+            stderr: 'daemon refused to start',
+            exitCode: 1,
+          );
+        },
+        environment: const {},
+      ),
+      throwsA(
+        isA<CodexBootstrapException>()
+            .having(
+              (error) => error.message,
+              'message',
+              contains('Shared app-server'),
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              contains('daemon refused to start'),
+            ),
+      ),
+    );
+    expect(calls, 1);
+  });
+
+  test('shared mode probes the existing standard socket for an old CLI',
+      () async {
+    final commands = <String>[];
+
+    final socket = await CodexDaemon.startShared(
+      (command, {environment}) async {
+        commands.add(_decodeShellWrapper(command));
+        if (commands.length == 1) {
+          return _result(
+            stderr: "error: unrecognized subcommand 'daemon'",
+            exitCode: 2,
+          );
+        }
+        return _result(
+          stdout: '/home/codex/.codex/app-server-control/'
+              'app-server-control.sock\n',
+        );
+      },
+      environment: const {},
+    );
+
+    expect(commands, hasLength(2));
+    expect(commands.first, 'exec codex app-server daemon start');
+    expect(commands.last, contains('app-server-control.sock'));
+    expect(commands.last, isNot(contains('android-ssh-codex')));
+    expect(
+      socket,
+      '/home/codex/.codex/app-server-control/app-server-control.sock',
+    );
+  });
+
   test(
     'proxy command safely quotes a socket path containing an apostrophe',
     () {
