@@ -182,11 +182,23 @@ final class AppController extends ChangeNotifier {
       );
       if (attempt != _connectionAttempt) return;
       stage = ConnectionStage.unixTunnel;
-      tunnel = await SshUnixTunnel.start(ssh.client, socketPath);
-      stage = ConnectionStage.rpcTunnel;
-      final transport = await WebSocketRpcTransport.connect(
-        Uri.parse('ws://127.0.0.1:${tunnel.localPort}/'),
+      tunnel = await SshUnixTunnel.start(
+        ssh.client,
+        socketPath,
+        environment: profile.environment,
       );
+      stage = ConnectionStage.rpcTunnel;
+      final tunnelFailure = tunnel.firstFailure.then<WebSocketRpcTransport>(
+        (_) => throw StateError(
+          'Remote Codex tunnel stopped without reporting a failure.',
+        ),
+      );
+      final transport = await Future.any<WebSocketRpcTransport>([
+        WebSocketRpcTransport.connect(
+          Uri.parse('ws://127.0.0.1:${tunnel.localPort}/'),
+        ),
+        tunnelFailure,
+      ]);
       rpc = JsonRpcClient(transport)..start();
       final api = CodexRemoteApi(rpc);
       notifications = api.notifications.listen(
