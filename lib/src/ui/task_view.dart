@@ -583,6 +583,8 @@ class _TaskTimelineState extends State<TaskTimeline>
   var _followLatest = true;
   var _showJumpToLatest = false;
   var _requestingOlder = false;
+  var _olderLoadArmed = true;
+  double? _pendingOlderAnchorOffset;
 
   @override
   void initState() {
@@ -620,7 +622,10 @@ class _TaskTimelineState extends State<TaskTimeline>
     if (!_scrollController.hasClients) return;
     final distanceFromOldest = _scrollController.position.maxScrollExtent -
         _scrollController.position.pixels;
-    if (distanceFromOldest <= _olderLoadThreshold) {
+    if (distanceFromOldest > _olderLoadThreshold) {
+      _olderLoadArmed = true;
+    } else if (_olderLoadArmed) {
+      _olderLoadArmed = false;
       _loadOlder();
     }
     final awayFromLatest = _distanceFromLatest > _followThreshold;
@@ -635,6 +640,9 @@ class _TaskTimelineState extends State<TaskTimeline>
     final userOverscroll = notification is OverscrollNotification &&
         notification.dragDetails != null;
     if (!userDriven && !userOverscroll) return false;
+    if (_requestingOlder) {
+      _pendingOlderAnchorOffset = _scrollController.position.pixels;
+    }
     final followLatest = _distanceFromLatest <= _followThreshold;
     if (followLatest == _followLatest && _showJumpToLatest == !followLatest) {
       return false;
@@ -656,12 +664,16 @@ class _TaskTimelineState extends State<TaskTimeline>
         !_scrollController.hasClients) {
       return;
     }
-    final previousOffset = _scrollController.position.pixels;
+    _pendingOlderAnchorOffset = _scrollController.position.pixels;
     setState(() => _requestingOlder = true);
     try {
       await load();
-      _preserveReverseAnchor(previousOffset, attempts: 3);
+      final anchorOffset = _pendingOlderAnchorOffset;
+      if (anchorOffset != null) {
+        _preserveReverseAnchor(anchorOffset, attempts: 3);
+      }
     } finally {
+      _pendingOlderAnchorOffset = null;
       if (mounted) setState(() => _requestingOlder = false);
     }
   }
