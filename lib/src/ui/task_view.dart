@@ -754,6 +754,7 @@ class _OlderContextControl extends StatelessWidget {
                       : const SizedBox.shrink(),
         ),
       );
+}
 
 class _TaskHeader extends StatelessWidget {
   const _TaskHeader({
