@@ -72,10 +72,11 @@ class _TaskViewState extends State<TaskView> {
   @override
   Widget build(BuildContext context) {
     final task = widget.task;
+    final compact = MediaQuery.sizeOf(context).width < 800;
     final approvals = widget.controller.approvals
         .where((approval) => approval.threadId == task.id)
         .toList(growable: false);
-    return Column(
+    final content = Column(
       children: [
         _TaskHeader(
           controller: widget.controller,
@@ -138,6 +139,13 @@ class _TaskViewState extends State<TaskView> {
           onSend: _send,
         ),
       ],
+    );
+    return PopScope(
+      canPop: !compact,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && compact) widget.controller.clearSelectedTask();
+      },
+      child: content,
     );
   }
 
