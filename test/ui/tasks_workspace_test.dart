@@ -144,6 +144,64 @@ void main() {
     expect(find.byKey(const Key('jump-to-latest')), findsNothing);
   });
 
+  testWidgets('loaded long timeline opens at the latest item', (tester) async {
+    tester.view.physicalSize = const Size(360, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    late StateSetter updateHost;
+    var loading = true;
+    var items = const <TaskItem>[];
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StatefulBuilder(
+          builder: (context, setState) {
+            updateHost = setState;
+            return TaskTimeline(items: items, loading: loading);
+          },
+        ),
+      ),
+    ));
+
+    updateHost(() {
+      loading = false;
+      items = longTimelineItems();
+    });
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('Long response 999').hitTestable(),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('one jump action reaches the end of a long timeline',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: TaskTimeline(items: longTimelineItems())),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, 1800));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('jump-to-latest')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('jump-to-latest')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('Long response 999').hitTestable(),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('jump-to-latest')), findsNothing);
+  });
+
   testWidgets('scrolling to the top requests one older context page',
       (tester) async {
     tester.view.physicalSize = const Size(360, 520);
@@ -344,4 +402,17 @@ void main() {
       isTrue,
     );
   });
+}
+
+List<TaskItem> longTimelineItems() {
+  return List.generate(
+    1000,
+    (index) => TaskItem(
+      id: 'long-message-$index',
+      kind: TaskItemKind.agent,
+      text: index < 900
+          ? 'Long response $index'
+          : 'Long response $index\n\n${List.filled(20, 'detail').join('\n\n')}',
+    ),
+  );
 }
