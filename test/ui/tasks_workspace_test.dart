@@ -246,6 +246,35 @@ void main() {
     expect(tester.getTopLeft(anchor).dy, closeTo(before, 1));
   });
 
+  testWidgets('viewport shrink keeps a followed timeline at the latest item',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final items = List.generate(
+      40,
+      (index) => TaskItem(
+        id: 'metric-message-$index',
+        kind: TaskItemKind.agent,
+        text: 'Viewport response $index\n\nSecond line for scrolling.',
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: TaskTimeline(items: items)),
+    ));
+    await tester.pumpAndSettle();
+    final latest = find.textContaining('Viewport response 39');
+    expect(latest.hitTestable(), findsOneWidget);
+
+    tester.view.physicalSize = const Size(360, 360);
+    await tester.pumpAndSettle();
+
+    expect(latest.hitTestable(), findsOneWidget);
+    expect(find.byKey(const Key('jump-to-latest')), findsNothing);
+  });
+
   testWidgets('task command menu exposes stable commands only', (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
