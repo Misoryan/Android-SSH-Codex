@@ -296,6 +296,97 @@ void main() {
     }
   });
 
+  test('reads every visible model and its advertised reasoning efforts',
+      () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    try {
+      final models = CodexRemoteApi(rpc).readModelCatalog();
+      final firstRequest =
+          jsonDecode(transport.sent.single) as Map<String, dynamic>;
+
+      expect(firstRequest, {
+        'method': 'model/list',
+        'id': 1,
+        'params': {'limit': 100, 'includeHidden': false},
+      });
+      transport.incoming.add(jsonEncode({
+        'id': firstRequest['id'],
+        'result': {
+          'data': [
+            {
+              'id': 'gpt-5.6-sol',
+              'model': 'gpt-5.6-sol',
+              'displayName': 'GPT-5.6 Sol',
+              'description': 'Frontier coding model',
+              'hidden': false,
+              'isDefault': true,
+              'defaultReasoningEffort': 'high',
+              'supportedReasoningEfforts': [
+                {
+                  'reasoningEffort': 'medium',
+                  'description': 'Fast and capable',
+                },
+                {
+                  'reasoningEffort': 'high',
+                  'description': 'Deeper reasoning',
+                },
+              ],
+            },
+          ],
+          'nextCursor': 'model-page-2',
+        },
+      }));
+      await pumpEventQueue();
+
+      final secondRequest =
+          jsonDecode(transport.sent[1]) as Map<String, dynamic>;
+      expect(secondRequest['params'], {
+        'limit': 100,
+        'includeHidden': false,
+        'cursor': 'model-page-2',
+      });
+      transport.incoming.add(jsonEncode({
+        'id': secondRequest['id'],
+        'result': {
+          'data': [
+            {
+              'id': 'gpt-5.6-terra',
+              'model': 'gpt-5.6-terra',
+              'displayName': 'GPT-5.6 Terra',
+              'description': 'Balanced coding model',
+              'hidden': false,
+              'isDefault': false,
+              'defaultReasoningEffort': 'medium',
+              'supportedReasoningEfforts': [
+                {
+                  'reasoningEffort': 'medium',
+                  'description': 'Balanced reasoning',
+                },
+              ],
+            },
+          ],
+          'nextCursor': null,
+        },
+      }));
+
+      final result = await models;
+      expect(result.map((model) => model.id), [
+        'gpt-5.6-sol',
+        'gpt-5.6-terra',
+      ]);
+      expect(result.first.isDefault, isTrue);
+      expect(result.first.defaultReasoningEffort, 'high');
+      expect(
+        result.first.supportedReasoningEfforts
+            .map((option) => '${option.effort}:${option.description}'),
+        ['medium:Fast and capable', 'high:Deeper reasoning'],
+      );
+    } finally {
+      await rpc.close();
+    }
+  });
+
   test('starts a turn with a structured skill input', () async {
     final transport = _RecordingTransport();
     final rpc = JsonRpcClient(transport)..start();
@@ -321,6 +412,36 @@ void main() {
             'path': '/home/pi/.codex/skills/release/SKILL.md',
           },
         ],
+      });
+      transport.incoming.add(jsonEncode({
+        'id': request['id'],
+        'result': {'turn': {}},
+      }));
+      await turn;
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  test('starts a turn with selected model and reasoning effort', () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    try {
+      final turn = CodexRemoteApi(rpc).startTurn(
+        'thr_1',
+        'Use the selected settings',
+        model: 'gpt-5.6-sol',
+        effort: 'high',
+      );
+      final request = jsonDecode(transport.sent.single) as Map<String, dynamic>;
+
+      expect(request['params'], {
+        'threadId': 'thr_1',
+        'input': [
+          {'type': 'text', 'text': 'Use the selected settings'},
+        ],
+        'model': 'gpt-5.6-sol',
+        'effort': 'high',
       });
       transport.incoming.add(jsonEncode({
         'id': request['id'],
