@@ -80,7 +80,7 @@ final class AppController extends ChangeNotifier {
   final SshConnector _connector;
   final TaskReducer _taskReducer = TaskReducer();
   final TaskCatalog _taskCatalog = TaskCatalog();
-  final TaskDetailLoadState _detailLoadState = TaskDetailLoadState();
+  final TaskHistoryLoadState _historyLoadState = TaskHistoryLoadState();
 
   List<HostProfile> _profiles = const [];
   List<RemoteProject> _projects = const [];
@@ -130,6 +130,16 @@ final class AppController extends ChangeNotifier {
   bool get hasMoreUnassignedTasks => _taskCatalog.unassignedNextCursor != null;
   bool get isLoadingProjectPage => _loadingProjectPage;
   bool get isLoadingUnassignedPage => _loadingUnassignedPage;
+  bool get hasOlderTaskContext =>
+      _historyLoadState.taskId == _selectedTaskId &&
+      _historyLoadState.hasOlder;
+  bool get isLoadingOlderTaskContext =>
+      _historyLoadState.taskId == _selectedTaskId &&
+      _historyLoadState.isLoadingOlder;
+  String? get olderTaskContextError =>
+      _historyLoadState.taskId == _selectedTaskId
+          ? _historyLoadState.olderError
+          : null;
 
   HostProfile? get selectedHost =>
       _profiles.where((profile) => profile.id == _selectedHostId).firstOrNull;
@@ -153,10 +163,13 @@ final class AppController extends ChangeNotifier {
   bool get isConnected => _connectionPhase == RemoteConnectionPhase.connected;
 
   bool isTaskDetailLoading(String taskId) =>
-      _detailLoadState.loadingTaskId == taskId;
+      _historyLoadState.taskId == taskId &&
+      _historyLoadState.isInitialLoading;
 
   String? taskDetailError(String taskId) =>
-      _detailLoadState.taskId == taskId ? _detailLoadState.error : null;
+      _historyLoadState.taskId == taskId
+          ? _historyLoadState.initialError
+          : null;
 
   Future<void> initialize() async {
     HostProfile? autoConnectProfile;
@@ -241,7 +254,7 @@ final class AppController extends ChangeNotifier {
         _projects = projects;
         _selectedProjectId = projects.firstOrNull?.id;
         _taskCatalog.clear();
-        _detailLoadState.clear();
+        _historyLoadState.clear();
       }
       stage = ConnectionStage.ssh;
       ssh = await _connector.connect(
@@ -498,35 +511,71 @@ final class AppController extends ChangeNotifier {
   Future<void> selectTask(String taskId) async {
     _selectedTaskId = taskId;
     _section = AppSection.tasks;
-    await _loadTaskDetails(taskId);
+    _taskReducer.replaceItems(_epoch, taskId, const []);
+    await _loadInitialTaskContext(taskId);
   }
 
   void clearSelectedTask() {
     _selectedTaskId = null;
-    _detailLoadState.clear();
+    _historyLoadState.clear();
     notifyListeners();
   }
 
   Future<void> retrySelectedTaskDetails() async {
     final taskId = _selectedTaskId;
-    if (taskId != null) await _loadTaskDetails(taskId);
+    if (taskId != null) await _loadInitialTaskContext(taskId);
   }
 
-  Future<void> _loadTaskDetails(String taskId) async {
+  Future<void> _loadInitialTaskContext(String taskId) async {
     final api = _api;
     final epoch = _epoch;
     if (api == null || !isConnected) return;
-    final generation = _detailLoadState.begin(taskId);
+    final token = _historyLoadState.beginInitial(taskId);
     notifyListeners();
     try {
-      final detail = await api.readThread(taskId);
+      final page = await api.readThreadTurnsPage(taskId);
       if (api != _api || epoch != _epoch) return;
-      final loadedByUs = _loadedThreadIds.intersection(_ownedThreadIds);
-      _taskReducer.applySnapshot(epoch, detail, loadedByUs);
-      _detailLoadState.complete(generation);
+      if (!_historyLoadState.complete(
+        token,
+        nextCursor: page.nextCursor,
+      )) {
+        return;
+      }
+      _taskReducer.prependItems(epoch, taskId, page.items);
     } catch (exception) {
       if (api != _api || epoch != _epoch) return;
-      _detailLoadState.fail(generation, _friendlyError(exception));
+      _historyLoadState.fail(token, _friendlyError(exception));
+    }
+    notifyListeners();
+  }
+
+  Future<void> loadOlderSelectedTaskContext() async {
+    final api = _api;
+    final epoch = _epoch;
+    if (api == null || !isConnected) return;
+    final token = _historyLoadState.beginOlder();
+    if (token == null) return;
+    notifyListeners();
+    try {
+      final page = await api.readThreadTurnsPage(
+        token.taskId,
+        cursor: token.cursor,
+      );
+      if (api != _api ||
+          epoch != _epoch ||
+          token.taskId != _selectedTaskId) {
+        return;
+      }
+      if (!_historyLoadState.complete(
+        token,
+        nextCursor: page.nextCursor,
+      )) {
+        return;
+      }
+      _taskReducer.prependItems(epoch, token.taskId, page.items);
+    } catch (exception) {
+      if (api != _api || epoch != _epoch) return;
+      _historyLoadState.fail(token, _friendlyError(exception));
     }
     notifyListeners();
   }
@@ -539,7 +588,7 @@ final class AppController extends ChangeNotifier {
     if (_selectedProjectId == projectId) return;
     _selectedProjectId = projectId;
     _selectedTaskId = null;
-    _detailLoadState.clear();
+    _historyLoadState.clear();
     _taskCatalog.clearProjectPage();
     notifyListeners();
     await refreshTasks(resetPages: true);
@@ -574,7 +623,7 @@ final class AppController extends ChangeNotifier {
     _projects = await _store.readProjects(hostId);
     _selectedProjectId = id;
     _selectedTaskId = null;
-    _detailLoadState.clear();
+    _historyLoadState.clear();
     _taskCatalog.clearProjectPage();
     notifyListeners();
     await refreshTasks(resetPages: true);
@@ -588,7 +637,7 @@ final class AppController extends ChangeNotifier {
     if (_selectedProjectId == projectId) {
       _selectedProjectId = _projects.firstOrNull?.id;
       _selectedTaskId = null;
-      _detailLoadState.clear();
+      _historyLoadState.clear();
       _taskCatalog.clearProjectPage();
     }
     notifyListeners();
@@ -902,9 +951,6 @@ final class AppController extends ChangeNotifier {
     } else if (notification.method == 'turn/completed' && threadId != null) {
       _activeTurnIds.remove(threadId);
       unawaited(refreshTasks());
-      if (threadId == _selectedTaskId) {
-        unawaited(_loadTaskDetails(threadId));
-      }
     }
     notifyListeners();
   }
@@ -938,7 +984,7 @@ final class AppController extends ChangeNotifier {
     _selectedProjectId = null;
     _projects = const [];
     _taskCatalog.clear();
-    _detailLoadState.clear();
+    _historyLoadState.clear();
     _activeTurnIds.clear();
     _loadedThreadIds = {};
     _ownedThreadIds = {};
