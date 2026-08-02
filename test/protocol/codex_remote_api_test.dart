@@ -511,6 +511,31 @@ void main() {
     expect(reducer.state.tasks['thr_1']?.items.single.text, 'hello');
   });
 
+  test('drops an empty agent message shell before it reaches the timeline', () {
+    final notification = CodexRemoteApi.parseNotification(
+      'item/started',
+      const {
+        'threadId': 'thr_1',
+        'item': {'id': 'agent-shell', 'type': 'agentMessage'},
+      },
+    );
+    final snapshot = CodexRemoteApi.parseThread({
+      'id': 'thr_1',
+      'turns': [
+        {
+          'items': [
+            {'id': 'agent-shell', 'type': 'agentMessage'},
+            {'id': 'answer', 'type': 'agentMessage', 'text': 'Done'},
+          ],
+        },
+      ],
+    });
+
+    expect(notification, isNull);
+    expect(snapshot.items.map((item) => item.id), ['answer']);
+    expect(snapshot.items.single.text, 'Done');
+  });
+
   test('appends repeated identical deltas when the protocol has no sequence',
       () {
     final reducer = TaskReducer();
