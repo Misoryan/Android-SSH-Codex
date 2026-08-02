@@ -4,6 +4,7 @@ import '../app_controller.dart';
 import '../protocol/codex_remote_api.dart';
 import '../tasks/task_reducer.dart';
 import 'composer_completion.dart';
+import 'timeline_entries.dart';
 import 'widgets/timeline_item.dart';
 
 class TaskView extends StatefulWidget {
@@ -716,6 +717,7 @@ class _TaskTimelineState extends State<TaskTimeline> {
     if (widget.items.isEmpty) {
       return const Center(child: Text('No task events yet'));
     }
+    final entries = buildTimelineEntries(widget.items);
     return Stack(
       children: [
         NotificationListener<ScrollNotification>(
@@ -724,15 +726,23 @@ class _TaskTimelineState extends State<TaskTimeline> {
             child: ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 72),
-              itemCount: widget.items.length + 1,
-              itemBuilder: (_, index) => index == 0
-                  ? _OlderContextControl(
-                      loading: widget.loadingOlder || _requestingOlder,
-                      error: widget.olderError,
-                      hasOlder: widget.hasOlder,
-                      onRetry: () => _loadOlder(retry: true),
-                    )
-                  : TimelineItemView(item: widget.items[index - 1]),
+              itemCount: entries.length + 1,
+              itemBuilder: (_, index) {
+                if (index == 0) {
+                  return _OlderContextControl(
+                    loading: widget.loadingOlder || _requestingOlder,
+                    error: widget.olderError,
+                    hasOlder: widget.hasOlder,
+                    onRetry: () => _loadOlder(retry: true),
+                  );
+                }
+                return switch (entries[index - 1]) {
+                  TimelineMessageEntry(:final item) =>
+                    TimelineItemView(item: item),
+                  TimelineActivityEntry(:final items) =>
+                    TimelineActivityGroup(items: items),
+                };
+              },
             ),
           ),
         ),
