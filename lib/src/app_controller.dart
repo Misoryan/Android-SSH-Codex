@@ -89,8 +89,7 @@ final class AppController extends ChangeNotifier {
   final TaskReducer _taskReducer = TaskReducer();
   final TaskCatalog _taskCatalog = TaskCatalog();
   final TaskHistoryLoadState _historyLoadState = TaskHistoryLoadState();
-  final TaskMessageQueue<_PendingTaskPrompt> _messageQueue =
-      TaskMessageQueue();
+  final TaskMessageQueue<_PendingTaskPrompt> _messageQueue = TaskMessageQueue();
   final Set<String> _flushingThreadIds = {};
 
   List<HostProfile> _profiles = const [];
