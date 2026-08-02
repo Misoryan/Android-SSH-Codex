@@ -41,6 +41,8 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed lib test
       - name: Show formatting diff on failure
         if: failure()
-        run: git diff -- lib test
+        run: |
+          dart format lib test
+          git diff -- lib test
       - run: flutter analyze
       - run: flutter test --reporter expanded
