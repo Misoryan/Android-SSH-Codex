@@ -131,8 +131,7 @@ final class AppController extends ChangeNotifier {
   bool get isLoadingProjectPage => _loadingProjectPage;
   bool get isLoadingUnassignedPage => _loadingUnassignedPage;
   bool get hasOlderTaskContext =>
-      _historyLoadState.taskId == _selectedTaskId &&
-      _historyLoadState.hasOlder;
+      _historyLoadState.taskId == _selectedTaskId && _historyLoadState.hasOlder;
   bool get isLoadingOlderTaskContext =>
       _historyLoadState.taskId == _selectedTaskId &&
       _historyLoadState.isLoadingOlder;
@@ -163,8 +162,7 @@ final class AppController extends ChangeNotifier {
   bool get isConnected => _connectionPhase == RemoteConnectionPhase.connected;
 
   bool isTaskDetailLoading(String taskId) =>
-      _historyLoadState.taskId == taskId &&
-      _historyLoadState.isInitialLoading;
+      _historyLoadState.taskId == taskId && _historyLoadState.isInitialLoading;
 
   String? taskDetailError(String taskId) => _historyLoadState.taskId == taskId
       ? _historyLoadState.initialError
@@ -557,9 +555,7 @@ final class AppController extends ChangeNotifier {
         token.taskId,
         cursor: token.cursor,
       );
-      if (api != _api ||
-          epoch != _epoch ||
-          token.taskId != _selectedTaskId) {
+      if (api != _api || epoch != _epoch || token.taskId != _selectedTaskId) {
         return;
       }
       if (!_historyLoadState.complete(token, nextCursor: page.nextCursor)) {
