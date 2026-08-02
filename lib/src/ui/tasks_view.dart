@@ -4,6 +4,7 @@ import '../app_controller.dart';
 import '../projects/remote_project.dart';
 import '../tasks/task_reducer.dart';
 import 'task_view.dart';
+import 'turn_settings_picker.dart';
 import 'widgets/connection_badge.dart';
 
 class TasksWorkspace extends StatelessWidget {
@@ -85,6 +86,7 @@ class _TaskList extends StatelessWidget {
     final project = controller.selectedProject;
     final cwd = TextEditingController(text: project?.cwd);
     final prompt = TextEditingController();
+    var turnSettings = const TurnSettings();
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -120,6 +122,15 @@ class _TaskList extends StatelessWidget {
                   alignLabelWithHint: true,
                 ),
               ),
+              const SizedBox(height: 12),
+              StatefulBuilder(
+                builder: (context, setDialogState) => TurnSettingsPicker(
+                  models: controller.models,
+                  value: turnSettings,
+                  onChanged: (value) =>
+                      setDialogState(() => turnSettings = value),
+                ),
+              ),
             ],
           ),
         ),
@@ -142,6 +153,8 @@ class _TaskList extends StatelessWidget {
       await controller.startNewTask(
         cwd: cwd.text.trim(),
         prompt: prompt.text.trim(),
+        model: turnSettings.model,
+        effort: turnSettings.effort,
       );
     }
     cwd.dispose();

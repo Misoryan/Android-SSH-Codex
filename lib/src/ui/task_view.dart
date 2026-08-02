@@ -6,6 +6,7 @@ import '../tasks/task_message_queue.dart';
 import '../tasks/task_reducer.dart';
 import 'composer_completion.dart';
 import 'timeline_entries.dart';
+import 'turn_settings_picker.dart';
 import 'widgets/timeline_item.dart';
 
 bool isTaskComposerEnabled({
@@ -38,6 +39,7 @@ class _TaskViewState extends State<TaskView> {
   var _commandBusy = false;
   var _lastCommandSucceeded = true;
   RemoteSkill? _selectedSkill;
+  TurnSettings _turnSettings = const TurnSettings();
   List<RemoteSkill>? _availableSkills;
   List<ComposerCompletion> _completions = const [];
   var _loadingSkills = false;
@@ -54,6 +56,7 @@ class _TaskViewState extends State<TaskView> {
     if (oldWidget.task.id != widget.task.id) {
       _composer.clear();
       _selectedSkill = null;
+      _turnSettings = const TurnSettings();
       _availableSkills = null;
       _completions = const [];
       _sending = false;
@@ -72,10 +75,11 @@ class _TaskViewState extends State<TaskView> {
   @override
   Widget build(BuildContext context) {
     final task = widget.task;
+    final compact = MediaQuery.sizeOf(context).width < 800;
     final approvals = widget.controller.approvals
         .where((approval) => approval.threadId == task.id)
         .toList(growable: false);
-    return Column(
+    final content = Column(
       children: [
         _TaskHeader(
           controller: widget.controller,
@@ -124,6 +128,15 @@ class _TaskViewState extends State<TaskView> {
               ),
             ),
           ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: TurnSettingsPicker(
+            models: widget.controller.models,
+            value: _turnSettings,
+            enabled: widget.controller.isConnected && !_sending,
+            onChanged: (value) => setState(() => _turnSettings = value),
+          ),
+        ),
         const Divider(height: 1),
         _Composer(
           controller: _composer,
@@ -139,6 +152,13 @@ class _TaskViewState extends State<TaskView> {
         ),
       ],
     );
+    return PopScope(
+      canPop: !compact,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && compact) widget.controller.clearSelectedTask();
+      },
+      child: content,
+    );
   }
 
   Future<void> _send() async {
@@ -146,8 +166,12 @@ class _TaskViewState extends State<TaskView> {
     if (text.isEmpty) return;
     setState(() => _sending = true);
     try {
-      final disposition =
-          await widget.controller.sendPrompt(text, skill: _selectedSkill);
+      final disposition = await widget.controller.sendPrompt(
+        text,
+        skill: _selectedSkill,
+        model: _turnSettings.model,
+        effort: _turnSettings.effort,
+      );
       if (!mounted) return;
       _composer.clear();
       setState(() {
@@ -583,18 +607,20 @@ class _TaskTimelineState extends State<TaskTimeline>
   var _followLatest = true;
   var _showJumpToLatest = false;
   var _requestingOlder = false;
+  var _olderLoadArmed = true;
+  double? _pendingOlderAnchorOffset;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_handleScroll);
-    _scheduleLatest(animated: false, attempts: 4);
+    _scheduleLatest(animated: false);
   }
 
   @override
   void didChangeMetrics() {
-    if (_followLatest) _scheduleLatest(animated: false, attempts: 4);
+    if (_followLatest) _scheduleLatest(animated: false);
   }
 
   @override
@@ -618,7 +644,12 @@ class _TaskTimelineState extends State<TaskTimeline>
 
   void _handleScroll() {
     if (!_scrollController.hasClients) return;
-    if (_scrollController.position.pixels <= _olderLoadThreshold) {
+    final distanceFromOldest = _scrollController.position.maxScrollExtent -
+        _scrollController.position.pixels;
+    if (distanceFromOldest > _olderLoadThreshold) {
+      _olderLoadArmed = true;
+    } else if (_olderLoadArmed) {
+      _olderLoadArmed = false;
       _loadOlder();
     }
     final awayFromLatest = _distanceFromLatest > _followThreshold;
@@ -633,6 +664,9 @@ class _TaskTimelineState extends State<TaskTimeline>
     final userOverscroll = notification is OverscrollNotification &&
         notification.dragDetails != null;
     if (!userDriven && !userOverscroll) return false;
+    if (_requestingOlder) {
+      _pendingOlderAnchorOffset = _scrollController.position.pixels;
+    }
     final followLatest = _distanceFromLatest <= _followThreshold;
     if (followLatest == _followLatest && _showJumpToLatest == !followLatest) {
       return false;
@@ -654,50 +688,38 @@ class _TaskTimelineState extends State<TaskTimeline>
         !_scrollController.hasClients) {
       return;
     }
-    final previousExtent = _scrollController.position.maxScrollExtent;
-    final previousOffset = _scrollController.position.pixels;
+    _pendingOlderAnchorOffset = _scrollController.position.pixels;
     setState(() => _requestingOlder = true);
     try {
       await load();
-      _preservePrependAnchor(previousExtent, previousOffset, attempts: 3);
+      final anchorOffset = _pendingOlderAnchorOffset;
+      if (anchorOffset != null) {
+        _preserveReverseAnchor(anchorOffset, attempts: 3);
+      }
     } finally {
+      _pendingOlderAnchorOffset = null;
       if (mounted) setState(() => _requestingOlder = false);
     }
   }
 
-  void _preservePrependAnchor(
-    double previousExtent,
-    double previousOffset, {
-    required int attempts,
-  }) {
+  void _preserveReverseAnchor(double offset, {required int attempts}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scrollController.hasClients) return;
-      final addedExtent =
-          _scrollController.position.maxScrollExtent - previousExtent;
-      if (addedExtent > 0) {
-        _scrollController.jumpTo(previousOffset + addedExtent);
-      }
+      _scrollController.jumpTo(offset);
       if (attempts > 1) {
-        _preservePrependAnchor(
-          previousExtent,
-          previousOffset,
-          attempts: attempts - 1,
-        );
+        _preserveReverseAnchor(offset, attempts: attempts - 1);
       }
     });
   }
 
   double get _distanceFromLatest =>
-      _scrollController.position.maxScrollExtent -
-      _scrollController.position.pixels;
+      _scrollController.position.pixels -
+      _scrollController.position.minScrollExtent;
 
-  void _scheduleLatest({required bool animated, int attempts = 1}) {
+  void _scheduleLatest({required bool animated}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_followLatest || !_scrollController.hasClients) return;
       _scrollToLatest(animated: animated);
-      if (attempts > 1) {
-        _scheduleLatest(animated: false, attempts: attempts - 1);
-      }
     });
   }
 
@@ -707,7 +729,7 @@ class _TaskTimelineState extends State<TaskTimeline>
       _followLatest = true;
       _showJumpToLatest = false;
     });
-    final latest = _scrollController.position.maxScrollExtent;
+    final latest = _scrollController.position.minScrollExtent;
     if (animated) {
       _scrollController.animateTo(
         latest,
@@ -758,10 +780,11 @@ class _TaskTimelineState extends State<TaskTimeline>
           child: SelectionArea(
             child: ListView.builder(
               controller: _scrollController,
+              reverse: true,
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 72),
               itemCount: entries.length + 1,
               itemBuilder: (_, index) {
-                if (index == 0) {
+                if (index == entries.length) {
                   return _OlderContextControl(
                     loading: widget.loadingOlder || _requestingOlder,
                     error: widget.olderError,
@@ -769,7 +792,7 @@ class _TaskTimelineState extends State<TaskTimeline>
                     onRetry: () => _loadOlder(retry: true),
                   );
                 }
-                return switch (entries[index - 1]) {
+                return switch (entries[entries.length - index - 1]) {
                   TimelineMessageEntry(:final item) =>
                     TimelineItemView(item: item),
                   TimelineActivityEntry(:final items) =>

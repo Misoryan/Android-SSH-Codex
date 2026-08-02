@@ -30,10 +30,17 @@ enum ConnectionStage {
 }
 
 final class _PendingTaskPrompt {
-  const _PendingTaskPrompt({required this.text, required this.skill});
+  const _PendingTaskPrompt({
+    required this.text,
+    required this.skill,
+    required this.model,
+    required this.effort,
+  });
 
   final String text;
   final RemoteSkill? skill;
+  final String? model;
+  final String? effort;
 }
 
 HostProfile? resolveAutoConnectProfile(
@@ -94,6 +101,7 @@ final class AppController extends ChangeNotifier {
 
   List<HostProfile> _profiles = const [];
   List<RemoteProject> _projects = const [];
+  List<RemoteModel> _models = const [];
   AppSection _section = AppSection.hosts;
   RemoteConnectionPhase _connectionPhase = RemoteConnectionPhase.disconnected;
   String? _selectedHostId;
@@ -126,6 +134,7 @@ final class AppController extends ChangeNotifier {
 
   List<HostProfile> get profiles => _profiles;
   List<RemoteProject> get projects => _projects;
+  List<RemoteModel> get models => _models;
   AppSection get section => _section;
   RemoteConnectionPhase get connectionPhase => _connectionPhase;
   String? get selectedHostId => _selectedHostId;
@@ -317,6 +326,13 @@ final class AppController extends ChangeNotifier {
       );
       stage = ConnectionStage.initialize;
       await api.initialize();
+      if (attempt != _connectionAttempt) return;
+      try {
+        _models = await api.readModelCatalog();
+      } catch (exception) {
+        _models = const [];
+        debugPrint('Could not read remote model catalog: $exception');
+      }
       if (attempt != _connectionAttempt) return;
 
       _ssh = ssh;
@@ -724,8 +740,12 @@ final class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> startNewTask(
-      {required String cwd, required String prompt}) async {
+  Future<void> startNewTask({
+    required String cwd,
+    required String prompt,
+    String? model,
+    String? effort,
+  }) async {
     final api = _requireApi();
     final attempt = _connectionAttempt;
     final epoch = _epoch;
@@ -748,7 +768,12 @@ final class AppController extends ChangeNotifier {
       TaskEvent.statusChanged(threadId, TaskStatus.running),
     );
     notifyListeners();
-    await api.startTurn(threadId, prompt);
+    await api.startTurn(
+      threadId,
+      prompt,
+      model: model,
+      effort: effort,
+    );
     if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
     await refreshTasks();
   }
@@ -756,6 +781,8 @@ final class AppController extends ChangeNotifier {
   Future<TaskMessageDisposition> sendPrompt(
     String prompt, {
     RemoteSkill? skill,
+    String? model,
+    String? effort,
   }) async {
     final api = _requireApi();
     final attempt = _connectionAttempt;
@@ -768,6 +795,8 @@ final class AppController extends ChangeNotifier {
     final pending = _PendingTaskPrompt(
       text: skill == null ? normalized : '\$${skill.name} $normalized',
       skill: skill,
+      model: model,
+      effort: effort,
     );
     if (_messageQueue.hasPending(task.id)) {
       _messageQueue.enqueue(task.id, pending);
@@ -858,7 +887,13 @@ final class AppController extends ChangeNotifier {
       }
       _loadedThreadIds = {..._loadedThreadIds, task.id};
     }
-    await api.startTurn(task.id, pending.text, skill: pending.skill);
+    await api.startTurn(
+      task.id,
+      pending.text,
+      skill: pending.skill,
+      model: pending.model,
+      effort: pending.effort,
+    );
     _ensureCurrentSession(api, attempt, epoch, profileId);
     _taskReducer.applyEvent(
       _epoch,
@@ -1106,6 +1141,7 @@ final class AppController extends ChangeNotifier {
     _selectedTaskId = null;
     _selectedProjectId = null;
     _projects = const [];
+    _models = const [];
     _taskCatalog.clear();
     _historyLoadState.clear();
     _activeTurnIds.clear();
@@ -1151,6 +1187,7 @@ final class AppController extends ChangeNotifier {
     _refreshTimer?.cancel();
     _refreshTimer = null;
     _approvals = const [];
+    _models = const [];
     final notificationSubscription = _notificationSubscription;
     final requestSubscription = _requestSubscription;
     final rpc = _rpc;
