@@ -561,7 +561,7 @@ class _TaskTimelineState extends State<TaskTimeline> {
   void initState() {
     super.initState();
     _scrollController.addListener(_handleScroll);
-    _scheduleLatest(animated: false);
+    _scheduleLatest(animated: false, attempts: 4);
   }
 
   @override
@@ -657,10 +657,13 @@ class _TaskTimelineState extends State<TaskTimeline> {
       _scrollController.position.maxScrollExtent -
       _scrollController.position.pixels;
 
-  void _scheduleLatest({required bool animated}) {
+  void _scheduleLatest({required bool animated, int attempts = 1}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_followLatest || !_scrollController.hasClients) return;
       _scrollToLatest(animated: animated);
+      if (attempts > 1) {
+        _scheduleLatest(animated: false, attempts: attempts - 1);
+      }
     });
   }
 
