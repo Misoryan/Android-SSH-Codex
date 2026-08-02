@@ -381,6 +381,34 @@ void main() {
     );
   });
 
+  testWidgets('system back leaves a mobile task before exiting the app',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final controller = AppController.memory();
+    addTearDown(controller.dispose);
+    var controllerNotified = false;
+    controller.addListener(() => controllerNotified = true);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: TaskView(
+          controller: controller,
+          task: task('mobile', 'Mobile task', '/srv/mobile'),
+        ),
+      ),
+    ));
+
+    final handled = await tester.binding.handlePopRoute();
+    await tester.pump();
+
+    expect(handled, isTrue);
+    expect(controllerNotified, isTrue);
+    expect(find.byType(TaskView), findsOneWidget);
+  });
+
   test('an external running task still accepts composer input', () {
     final external = TaskRecord(
       id: 'external',
