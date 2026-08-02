@@ -8,10 +8,35 @@ import 'package:android_ssh_codex/src/app_controller.dart';
 import 'package:android_ssh_codex/src/profiles/host_profile.dart';
 import 'package:android_ssh_codex/src/profiles/profile_store.dart';
 import 'package:android_ssh_codex/src/projects/remote_project.dart';
+import 'package:android_ssh_codex/src/tasks/task_reducer.dart';
 import 'package:android_ssh_codex/src/transport/codex_daemon.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('remote notifications redraw only for visible state changes', () {
+    expect(
+      hasRemoteNotificationVisibleChange(
+        event: null,
+        activeTurnChanged: false,
+      ),
+      isFalse,
+    );
+    expect(
+      hasRemoteNotificationVisibleChange(
+        event: const TaskEvent.statusChanged('thread', TaskStatus.running),
+        activeTurnChanged: false,
+      ),
+      isTrue,
+    );
+    expect(
+      hasRemoteNotificationVisibleChange(
+        event: null,
+        activeTurnChanged: true,
+      ),
+      isTrue,
+    );
+  });
+
   test('auto-connect selection only accepts the remembered profile', () {
     final profiles = [
       HostProfile(
