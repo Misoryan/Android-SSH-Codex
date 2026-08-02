@@ -410,7 +410,7 @@ List<TaskItem> longTimelineItems() {
     (index) => TaskItem(
       id: 'long-message-$index',
       kind: TaskItemKind.agent,
-      text: index < 900
+      text: index < 900 || index == 999
           ? 'Long response $index'
           : 'Long response $index\n\n${List.filled(20, 'detail').join('\n\n')}',
     ),

@@ -656,12 +656,24 @@ class _TaskTimelineState extends State<TaskTimeline>
         !_scrollController.hasClients) {
       return;
     }
+    final previousOffset = _scrollController.position.pixels;
     setState(() => _requestingOlder = true);
     try {
       await load();
+      _preserveReverseAnchor(previousOffset, attempts: 3);
     } finally {
       if (mounted) setState(() => _requestingOlder = false);
     }
+  }
+
+  void _preserveReverseAnchor(double offset, {required int attempts}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      _scrollController.jumpTo(offset);
+      if (attempts > 1) {
+        _preserveReverseAnchor(offset, attempts: attempts - 1);
+      }
+    });
   }
 
   double get _distanceFromLatest =>
