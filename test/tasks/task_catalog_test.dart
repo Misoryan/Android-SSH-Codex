@@ -96,4 +96,49 @@ void main() {
     expect(state.taskId, 'second');
     expect(state.error, 'Could not read task');
   });
+
+  test('starting initial history for a new task rejects the stale page', () {
+    final state = TaskHistoryLoadState();
+    final first = state.beginInitial('first');
+    final second = state.beginInitial('second');
+
+    expect(state.complete(first, nextCursor: 'stale'), isFalse);
+    expect(state.taskId, 'second');
+    expect(state.isInitialLoading, isTrue);
+
+    expect(state.complete(second, nextCursor: 'older'), isTrue);
+    expect(state.isInitialLoading, isFalse);
+    expect(state.hasOlder, isTrue);
+  });
+
+  test('older history requests are single flight and advance the cursor', () {
+    final state = TaskHistoryLoadState();
+    final initial = state.beginInitial('task');
+    state.complete(initial, nextCursor: 'page-2');
+
+    final older = state.beginOlder();
+
+    expect(older?.taskId, 'task');
+    expect(older?.cursor, 'page-2');
+    expect(state.beginOlder(), isNull);
+    expect(state.isLoadingOlder, isTrue);
+
+    expect(state.complete(older!, nextCursor: 'page-3'), isTrue);
+    expect(state.isLoadingOlder, isFalse);
+    expect(state.nextCursor, 'page-3');
+  });
+
+  test('an older page failure stays inline and preserves its retry cursor', () {
+    final state = TaskHistoryLoadState();
+    final initial = state.beginInitial('task');
+    state.complete(initial, nextCursor: 'page-2');
+    final older = state.beginOlder()!;
+
+    expect(state.fail(older, 'Could not load earlier context'), isTrue);
+
+    expect(state.isLoadingOlder, isFalse);
+    expect(state.olderError, 'Could not load earlier context');
+    expect(state.nextCursor, 'page-2');
+    expect(state.beginOlder()?.cursor, 'page-2');
+  });
 }

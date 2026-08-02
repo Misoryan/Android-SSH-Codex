@@ -189,4 +189,60 @@ void main() {
 
     expect(reducer.state.tasks['one']?.items.single.text, 'Hello');
   });
+
+  test('replacing task items clears its expanded history window only', () {
+    final epoch = reducer.beginConnection();
+    final refresh = reducer.beginRefresh(epoch);
+    reducer.applyRefresh(
+      refresh,
+      [snapshot('one', text: 'old history'), snapshot('two', text: 'sibling')],
+      const {},
+    );
+
+    reducer.replaceItems(
+      epoch,
+      'one',
+      const [
+        TaskItem(id: 'recent', kind: TaskItemKind.agent, text: 'recent tail'),
+      ],
+    );
+
+    expect(
+      reducer.state.tasks['one']?.items.map((item) => item.text),
+      ['recent tail'],
+    );
+    expect(reducer.state.tasks['two']?.items.single.text, 'sibling');
+  });
+
+  test('prepending older items preserves order while current items win', () {
+    final epoch = reducer.beginConnection();
+    final refresh = reducer.beginRefresh(epoch);
+    reducer.applyRefresh(refresh, [snapshot('one')], const {});
+    reducer.replaceItems(
+      epoch,
+      'one',
+      const [
+        TaskItem(id: 'overlap', kind: TaskItemKind.agent, text: 'live value'),
+        TaskItem(id: 'recent', kind: TaskItemKind.user, text: 'recent'),
+      ],
+    );
+
+    reducer.prependItems(
+      epoch,
+      'one',
+      const [
+        TaskItem(id: 'oldest', kind: TaskItemKind.user, text: 'oldest'),
+        TaskItem(
+          id: 'overlap',
+          kind: TaskItemKind.agent,
+          text: 'stale snapshot',
+        ),
+      ],
+    );
+
+    expect(
+      reducer.state.tasks['one']?.items.map((item) => item.text),
+      ['oldest', 'live value', 'recent'],
+    );
+  });
 }
