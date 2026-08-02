@@ -2,9 +2,25 @@ import 'package:flutter/material.dart';
 
 import '../app_controller.dart';
 import '../protocol/codex_remote_api.dart';
+import '../tasks/task_message_queue.dart';
 import '../tasks/task_reducer.dart';
 import 'composer_completion.dart';
+import 'timeline_entries.dart';
 import 'widgets/timeline_item.dart';
+
+bool isTaskComposerEnabled({
+  required TaskRecord task,
+  required bool connected,
+  required bool sending,
+}) {
+  final acceptsMessages = switch (task.ownership) {
+    TaskOwnership.available ||
+    TaskOwnership.local ||
+    TaskOwnership.external =>
+      true,
+  };
+  return acceptsMessages && connected && !sending;
+}
 
 class TaskView extends StatefulWidget {
   const TaskView({required this.controller, required this.task, super.key});
@@ -80,6 +96,10 @@ class _TaskViewState extends State<TaskView> {
             loading: widget.controller.isTaskDetailLoading(task.id),
             error: widget.controller.taskDetailError(task.id),
             onRetry: widget.controller.retrySelectedTaskDetails,
+            hasOlder: widget.controller.hasOlderTaskContext,
+            loadingOlder: widget.controller.isLoadingOlderTaskContext,
+            olderError: widget.controller.olderTaskContextError,
+            onLoadOlder: widget.controller.loadOlderSelectedTaskContext,
           ),
         ),
         for (final approval in approvals)
@@ -107,7 +127,11 @@ class _TaskViewState extends State<TaskView> {
         const Divider(height: 1),
         _Composer(
           controller: _composer,
-          enabled: task.canWrite && widget.controller.isConnected && !_sending,
+          enabled: isTaskComposerEnabled(
+            task: task,
+            connected: widget.controller.isConnected,
+            sending: _sending,
+          ),
           completions: _completions,
           loadingCompletions: _loadingSkills,
           onCompletion: _selectCompletion,
@@ -122,13 +146,19 @@ class _TaskViewState extends State<TaskView> {
     if (text.isEmpty) return;
     setState(() => _sending = true);
     try {
-      await widget.controller.sendPrompt(text, skill: _selectedSkill);
+      final disposition =
+          await widget.controller.sendPrompt(text, skill: _selectedSkill);
       if (!mounted) return;
       _composer.clear();
       setState(() {
         _selectedSkill = null;
         _completions = const [];
       });
+      if (disposition == TaskMessageDisposition.queued) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Message queued for the next turn.')),
+        );
+      }
     } catch (exception) {
       _showError(exception);
     } finally {
@@ -524,6 +554,10 @@ class TaskTimeline extends StatefulWidget {
     this.loading = false,
     this.error,
     this.onRetry,
+    this.hasOlder = false,
+    this.loadingOlder = false,
+    this.olderError,
+    this.onLoadOlder,
     super.key,
   });
 
@@ -531,23 +565,36 @@ class TaskTimeline extends StatefulWidget {
   final bool loading;
   final String? error;
   final VoidCallback? onRetry;
+  final bool hasOlder;
+  final bool loadingOlder;
+  final String? olderError;
+  final Future<void> Function()? onLoadOlder;
 
   @override
   State<TaskTimeline> createState() => _TaskTimelineState();
 }
 
-class _TaskTimelineState extends State<TaskTimeline> {
+class _TaskTimelineState extends State<TaskTimeline>
+    with WidgetsBindingObserver {
   static const _followThreshold = 96.0;
+  static const _olderLoadThreshold = 80.0;
 
   final _scrollController = ScrollController();
   var _followLatest = true;
   var _showJumpToLatest = false;
+  var _requestingOlder = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_handleScroll);
-    _scheduleLatest(animated: false);
+    _scheduleLatest(animated: false, attempts: 4);
+  }
+
+  @override
+  void didChangeMetrics() {
+    if (_followLatest) _scheduleLatest(animated: false, attempts: 4);
   }
 
   @override
@@ -562,6 +609,7 @@ class _TaskTimelineState extends State<TaskTimeline> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scrollController
       ..removeListener(_handleScroll)
       ..dispose();
@@ -570,14 +618,72 @@ class _TaskTimelineState extends State<TaskTimeline> {
 
   void _handleScroll() {
     if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels <= _olderLoadThreshold) {
+      _loadOlder();
+    }
     final awayFromLatest = _distanceFromLatest > _followThreshold;
-    if (awayFromLatest == _showJumpToLatest &&
-        _followLatest == !awayFromLatest) {
-      return;
+    final showJump = awayFromLatest && !_followLatest;
+    if (showJump == _showJumpToLatest) return;
+    setState(() => _showJumpToLatest = showJump);
+  }
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    final userDriven = notification is ScrollUpdateNotification &&
+        notification.dragDetails != null;
+    final userOverscroll = notification is OverscrollNotification &&
+        notification.dragDetails != null;
+    if (!userDriven && !userOverscroll) return false;
+    final followLatest = _distanceFromLatest <= _followThreshold;
+    if (followLatest == _followLatest && _showJumpToLatest == !followLatest) {
+      return false;
     }
     setState(() {
-      _showJumpToLatest = awayFromLatest;
-      _followLatest = !awayFromLatest;
+      _followLatest = followLatest;
+      _showJumpToLatest = !followLatest;
+    });
+    return false;
+  }
+
+  Future<void> _loadOlder({bool retry = false}) async {
+    final load = widget.onLoadOlder;
+    if (load == null ||
+        _requestingOlder ||
+        widget.loadingOlder ||
+        !widget.hasOlder ||
+        (!retry && widget.olderError != null) ||
+        !_scrollController.hasClients) {
+      return;
+    }
+    final previousExtent = _scrollController.position.maxScrollExtent;
+    final previousOffset = _scrollController.position.pixels;
+    setState(() => _requestingOlder = true);
+    try {
+      await load();
+      _preservePrependAnchor(previousExtent, previousOffset, attempts: 3);
+    } finally {
+      if (mounted) setState(() => _requestingOlder = false);
+    }
+  }
+
+  void _preservePrependAnchor(
+    double previousExtent,
+    double previousOffset, {
+    required int attempts,
+  }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final addedExtent =
+          _scrollController.position.maxScrollExtent - previousExtent;
+      if (addedExtent > 0) {
+        _scrollController.jumpTo(previousOffset + addedExtent);
+      }
+      if (attempts > 1) {
+        _preservePrependAnchor(
+          previousExtent,
+          previousOffset,
+          attempts: attempts - 1,
+        );
+      }
     });
   }
 
@@ -585,16 +691,22 @@ class _TaskTimelineState extends State<TaskTimeline> {
       _scrollController.position.maxScrollExtent -
       _scrollController.position.pixels;
 
-  void _scheduleLatest({required bool animated}) {
+  void _scheduleLatest({required bool animated, int attempts = 1}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_followLatest || !_scrollController.hasClients) return;
       _scrollToLatest(animated: animated);
+      if (attempts > 1) {
+        _scheduleLatest(animated: false, attempts: attempts - 1);
+      }
     });
   }
 
   void _scrollToLatest({bool animated = true}) {
     if (!_scrollController.hasClients) return;
-    _followLatest = true;
+    setState(() {
+      _followLatest = true;
+      _showJumpToLatest = false;
+    });
     final latest = _scrollController.position.maxScrollExtent;
     if (animated) {
       _scrollController.animateTo(
@@ -638,15 +750,33 @@ class _TaskTimelineState extends State<TaskTimeline> {
     if (widget.items.isEmpty) {
       return const Center(child: Text('No task events yet'));
     }
+    final entries = buildTimelineEntries(widget.items);
     return Stack(
       children: [
-        SelectionArea(
-          child: ListView.builder(
-            controller: _scrollController,
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 72),
-            itemCount: widget.items.length,
-            itemBuilder: (_, index) =>
-                TimelineItemView(item: widget.items[index]),
+        NotificationListener<ScrollNotification>(
+          onNotification: _handleScrollNotification,
+          child: SelectionArea(
+            child: ListView.builder(
+              controller: _scrollController,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 72),
+              itemCount: entries.length + 1,
+              itemBuilder: (_, index) {
+                if (index == 0) {
+                  return _OlderContextControl(
+                    loading: widget.loadingOlder || _requestingOlder,
+                    error: widget.olderError,
+                    hasOlder: widget.hasOlder,
+                    onRetry: () => _loadOlder(retry: true),
+                  );
+                }
+                return switch (entries[index - 1]) {
+                  TimelineMessageEntry(:final item) =>
+                    TimelineItemView(item: item),
+                  TimelineActivityEntry(:final items) =>
+                    TimelineActivityGroup(items: items),
+                };
+              },
+            ),
           ),
         ),
         if (_showJumpToLatest)
@@ -663,6 +793,46 @@ class _TaskTimelineState extends State<TaskTimeline> {
       ],
     );
   }
+}
+
+class _OlderContextControl extends StatelessWidget {
+  const _OlderContextControl({
+    required this.loading,
+    required this.error,
+    required this.hasOlder,
+    required this.onRetry,
+  });
+
+  final bool loading;
+  final String? error;
+  final bool hasOlder;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: 44,
+        child: Center(
+          child: loading
+              ? const SizedBox.square(
+                  key: Key('older-context-progress'),
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : error != null
+                  ? TextButton.icon(
+                      key: const Key('retry-older-context'),
+                      onPressed: onRetry,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Retry earlier context'),
+                    )
+                  : !hasOlder
+                      ? Text(
+                          'Start of task',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        )
+                      : const SizedBox.shrink(),
+        ),
+      );
 }
 
 class _TaskHeader extends StatelessWidget {

@@ -17,6 +17,86 @@ class TimelineItemView extends StatelessWidget {
   }
 }
 
+class TimelineActivityGroup extends StatelessWidget {
+  const TimelineActivityGroup({required this.items, super.key});
+
+  final List<TaskItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = items.length;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Card(
+        key: const Key('activity-group'),
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        child: ExpansionTile(
+          dense: true,
+          visualDensity: const VisualDensity(vertical: -3),
+          leading: const Icon(Icons.build_circle_outlined, size: 19),
+          title: Text('$count work ${count == 1 ? 'event' : 'events'}'),
+          subtitle: Text(
+            items.map((item) => item.title ?? _activityLabel(item)).join(' · '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+          children: [
+            for (final item in items) _CompactActivityRow(item: item),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactActivityRow extends StatelessWidget {
+  const _CompactActivityRow({required this.item});
+
+  final TaskItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final detail = item.detail?.trim();
+    final subtitle = item.text.trim();
+    return ExpansionTile(
+      dense: true,
+      visualDensity: const VisualDensity(vertical: -4),
+      tilePadding: const EdgeInsets.symmetric(horizontal: 8),
+      childrenPadding: const EdgeInsets.fromLTRB(38, 0, 8, 8),
+      leading: Icon(
+        _activityIcon(item),
+        size: 17,
+        color: _activityColor(context, item),
+      ),
+      title: Text(
+        item.title ?? _activityLabel(item),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: subtitle.isEmpty
+          ? null
+          : Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
+      trailing: item.status == null ? null : _StatusBadge(status: item.status!),
+      showTrailingIcon: detail?.isNotEmpty == true,
+      children: detail?.isNotEmpty == true
+          ? [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: item.kind == TaskItemKind.reasoning
+                    ? MarkdownContent(text: detail!)
+                    : SelectableText(
+                        detail!,
+                        style: const TextStyle(fontFamily: 'monospace'),
+                      ),
+              ),
+            ]
+          : const [],
+    );
+  }
+}
+
 class _Message extends StatelessWidget {
   const _Message({required this.item});
 
@@ -59,12 +139,16 @@ class _ActivityCard extends StatelessWidget {
                 ? detail!
                 : item.text.trim();
     final tile = ExpansionTile(
-      leading: Icon(_icon, size: 20, color: _color(context)),
+      leading: Icon(
+        _activityIcon(item),
+        size: 20,
+        color: _activityColor(context, item),
+      ),
       title: Row(
         children: [
           Expanded(
             child: Text(
-              item.title ?? _label,
+              item.title ?? _activityLabel(item),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
@@ -99,30 +183,31 @@ class _ActivityCard extends StatelessWidget {
       ),
     );
   }
-
-  IconData get _icon => switch (item.kind) {
-        TaskItemKind.command => Icons.terminal,
-        TaskItemKind.file => Icons.difference_outlined,
-        TaskItemKind.tool => Icons.build_outlined,
-        TaskItemKind.reasoning => Icons.psychology_outlined,
-        _ => Icons.info_outline,
-      };
-
-  String get _label => switch (item.kind) {
-        TaskItemKind.command => 'Command',
-        TaskItemKind.file => 'File changes',
-        TaskItemKind.tool => 'Tool',
-        TaskItemKind.reasoning => 'Reasoning',
-        _ => 'Activity',
-      };
-
-  Color _color(BuildContext context) => switch (item.kind) {
-        TaskItemKind.command => Theme.of(context).colorScheme.secondary,
-        TaskItemKind.file => Theme.of(context).colorScheme.primary,
-        TaskItemKind.tool => Theme.of(context).colorScheme.tertiary,
-        _ => Theme.of(context).colorScheme.outline,
-      };
 }
+
+IconData _activityIcon(TaskItem item) => switch (item.kind) {
+      TaskItemKind.command => Icons.terminal,
+      TaskItemKind.file => Icons.difference_outlined,
+      TaskItemKind.tool => Icons.build_outlined,
+      TaskItemKind.reasoning => Icons.psychology_outlined,
+      _ => Icons.info_outline,
+    };
+
+String _activityLabel(TaskItem item) => switch (item.kind) {
+      TaskItemKind.command => 'Command',
+      TaskItemKind.file => 'File changes',
+      TaskItemKind.tool => 'Tool',
+      TaskItemKind.reasoning => 'Reasoning',
+      _ => 'Activity',
+    };
+
+Color _activityColor(BuildContext context, TaskItem item) =>
+    switch (item.kind) {
+      TaskItemKind.command => Theme.of(context).colorScheme.secondary,
+      TaskItemKind.file => Theme.of(context).colorScheme.primary,
+      TaskItemKind.tool => Theme.of(context).colorScheme.tertiary,
+      _ => Theme.of(context).colorScheme.outline,
+    };
 
 class _StatusBadge extends StatelessWidget {
   const _StatusBadge({required this.status});

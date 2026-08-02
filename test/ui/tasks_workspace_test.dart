@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:android_ssh_codex/src/app_controller.dart';
 import 'package:android_ssh_codex/src/projects/remote_project.dart';
 import 'package:android_ssh_codex/src/tasks/task_reducer.dart';
@@ -142,6 +144,137 @@ void main() {
     expect(find.byKey(const Key('jump-to-latest')), findsNothing);
   });
 
+  testWidgets('scrolling to the top requests one older context page',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<void>();
+    var requests = 0;
+    final items = List.generate(
+      30,
+      (index) => TaskItem(
+        id: 'message-$index',
+        kind: TaskItemKind.agent,
+        text: 'Current message $index\n\nScrollable detail.',
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: TaskTimeline(
+          items: items,
+          hasOlder: true,
+          onLoadOlder: () async {
+            requests++;
+            await pending.future;
+          },
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, 4000));
+    await tester.pump();
+    await tester.drag(find.byType(ListView), const Offset(0, 1000));
+    await tester.pump();
+
+    expect(requests, 1);
+    expect(find.byKey(const Key('older-context-progress')), findsOneWidget);
+
+    await tester.drag(find.byType(ListView), const Offset(0, 500));
+    await tester.pump();
+    expect(requests, 1);
+    pending.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('prepending older context preserves the visible anchor',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<void>();
+    late StateSetter updateHost;
+    var items = List.generate(
+      30,
+      (index) => TaskItem(
+        id: 'message-$index',
+        kind: TaskItemKind.agent,
+        text: 'Anchor message $index\n\nScrollable detail.',
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StatefulBuilder(
+          builder: (context, setState) {
+            updateHost = setState;
+            return TaskTimeline(
+              items: items,
+              hasOlder: true,
+              onLoadOlder: () => pending.future,
+            );
+          },
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, 4000));
+    await tester.pump();
+
+    final anchor = find.textContaining('Anchor message 0');
+    expect(anchor, findsOneWidget);
+    final before = tester.getTopLeft(anchor).dy;
+
+    updateHost(() {
+      items = [
+        for (var index = 10; index > 0; index--)
+          TaskItem(
+            id: 'older-$index',
+            kind: TaskItemKind.user,
+            text: 'Older message $index\n\nScrollable detail.',
+          ),
+        ...items,
+      ];
+    });
+    pending.complete();
+    await tester.pumpAndSettle();
+
+    expect(tester.getTopLeft(anchor).dy, closeTo(before, 1));
+  });
+
+  testWidgets('viewport shrink keeps a followed timeline at the latest item',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final items = List.generate(
+      40,
+      (index) => TaskItem(
+        id: 'metric-message-$index',
+        kind: TaskItemKind.agent,
+        text: 'Viewport response $index\n\nSecond line for scrolling.',
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: TaskTimeline(items: items)),
+    ));
+    await tester.pumpAndSettle();
+    final latest = find.textContaining('Viewport response 39');
+    expect(latest.hitTestable(), findsOneWidget);
+
+    tester.view.physicalSize = const Size(360, 360);
+    await tester.pumpAndSettle();
+
+    expect(latest.hitTestable(), findsOneWidget);
+    expect(find.byKey(const Key('jump-to-latest')), findsNothing);
+  });
+
   testWidgets('task command menu exposes stable commands only', (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
@@ -187,6 +320,28 @@ void main() {
     expect(
       tester.widget<TextField>(find.byType(TextField)).controller!.text,
       isEmpty,
+    );
+  });
+
+  test('an external running task still accepts composer input', () {
+    final external = TaskRecord(
+      id: 'external',
+      title: 'External task',
+      status: TaskStatus.running,
+      cwd: '/srv/mobile',
+      updatedAt: DateTime.utc(2026, 8, 2),
+      items: const [],
+      ownership: TaskOwnership.external,
+      revision: 1,
+    );
+
+    expect(
+      isTaskComposerEnabled(
+        task: external,
+        connected: true,
+        sending: false,
+      ),
+      isTrue,
     );
   });
 }

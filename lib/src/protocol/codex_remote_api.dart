@@ -18,6 +18,13 @@ final class RemoteTaskPage {
   final String? nextCursor;
 }
 
+final class RemoteTurnPage {
+  const RemoteTurnPage({required this.items, required this.nextCursor});
+
+  final List<TaskItem> items;
+  final String? nextCursor;
+}
+
 final class RemoteSkill {
   const RemoteSkill({
     required this.name,
@@ -80,7 +87,7 @@ final class CodexRemoteApi {
         'version': '0.1.0',
       },
       'capabilities': {
-        'experimentalApi': false,
+        'experimentalApi': true,
       },
     });
     _rpc.notify('initialized', const {});
@@ -132,13 +139,41 @@ final class CodexRemoteApi {
     return parseThread(_map(result['thread']));
   }
 
-  Future<String?> readActiveTurnId(String threadId) async {
-    final result = _map(await _rpc.request('thread/read', {
+  Future<RemoteTurnPage> readThreadTurnsPage(
+    String threadId, {
+    String? cursor,
+  }) async {
+    final result = _map(await _rpc.request('thread/turns/list', {
       'threadId': threadId,
-      'includeTurns': true,
+      'limit': 10,
+      'sortDirection': 'desc',
+      'itemsView': 'full',
+      if (cursor != null) 'cursor': cursor,
     }));
-    final turns = _map(result['thread'])['turns'] as List<dynamic>? ?? const [];
+    final turns = result['data'] as List<dynamic>? ?? const [];
+    final items = <TaskItem>[];
     for (final rawTurn in turns.reversed) {
+      final turn = _map(rawTurn);
+      for (final rawItem in turn['items'] as List<dynamic>? ?? const []) {
+        final item = _parseItem(_map(rawItem));
+        if (item != null) items.add(item);
+      }
+    }
+    return RemoteTurnPage(
+      items: List.unmodifiable(items),
+      nextCursor: result['nextCursor'] as String?,
+    );
+  }
+
+  Future<String?> readActiveTurnId(String threadId) async {
+    final result = _map(await _rpc.request('thread/turns/list', {
+      'threadId': threadId,
+      'limit': 1,
+      'sortDirection': 'desc',
+      'itemsView': 'notLoaded',
+    }));
+    final turns = result['data'] as List<dynamic>? ?? const [];
+    for (final rawTurn in turns) {
       final turn = _map(rawTurn);
       if (_isActiveTurnStatus(turn['status'])) {
         return turn['id'] as String?;
@@ -267,7 +302,8 @@ final class CodexRemoteApi {
     for (final rawTurn in turns) {
       final turn = _map(rawTurn);
       for (final rawItem in turn['items'] as List<dynamic>? ?? const []) {
-        items.add(_parseItem(_map(rawItem)));
+        final item = _parseItem(_map(rawItem));
+        if (item != null) items.add(item);
       }
     }
     final title = _firstText(
@@ -309,16 +345,19 @@ final class CodexRemoteApi {
       case 'item/agentMessage/delta':
         final itemId = params['itemId'] as String? ?? 'agent-message';
         final sequence = params['sequence'] ?? params['deltaIndex'];
+        final delta = params['delta'] as String? ?? '';
+        if (delta.isEmpty) return null;
         return TaskEvent.agentDelta(
           threadId,
           itemId,
           sequence == null ? null : '$threadId:$itemId:$sequence',
-          params['delta'] as String? ?? '',
+          delta,
         );
       case 'item/started':
       case 'item/completed':
         final item = _map(params['item']);
-        return TaskEvent.itemChanged(threadId, _parseItem(item));
+        final parsed = _parseItem(item);
+        return parsed == null ? null : TaskEvent.itemChanged(threadId, parsed);
       default:
         return null;
     }
@@ -370,7 +409,7 @@ RemoteThreadGoal? _parseGoal(Object? raw) {
   );
 }
 
-TaskItem _parseItem(Map<String, dynamic> item) {
+TaskItem? _parseItem(Map<String, dynamic> item) {
   final type = item['type'] as String? ?? 'unknown';
   final id = item['id'] as String? ?? '$type-${item.hashCode}';
   final text = _extractText(item);
@@ -383,6 +422,10 @@ TaskItem _parseItem(Map<String, dynamic> item) {
     'reasoning' => TaskItemKind.reasoning,
     _ => TaskItemKind.notice,
   };
+  if ((kind == TaskItemKind.user || kind == TaskItemKind.agent) &&
+      text.trim().isEmpty) {
+    return null;
+  }
   final presentation = _itemPresentation(type, item, text);
   return TaskItem(
     id: id,

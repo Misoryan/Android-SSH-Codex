@@ -9,6 +9,7 @@ import 'protocol/codex_remote_api.dart';
 import 'protocol/json_rpc_client.dart';
 import 'protocol/websocket_rpc_transport.dart';
 import 'tasks/task_catalog.dart';
+import 'tasks/task_message_queue.dart';
 import 'tasks/task_reducer.dart';
 import 'transport/codex_daemon.dart';
 import 'transport/ssh_connector.dart';
@@ -26,6 +27,13 @@ enum ConnectionStage {
   rpcTunnel,
   initialize,
   refresh,
+}
+
+final class _PendingTaskPrompt {
+  const _PendingTaskPrompt({required this.text, required this.skill});
+
+  final String text;
+  final RemoteSkill? skill;
 }
 
 HostProfile? resolveAutoConnectProfile(
@@ -80,7 +88,9 @@ final class AppController extends ChangeNotifier {
   final SshConnector _connector;
   final TaskReducer _taskReducer = TaskReducer();
   final TaskCatalog _taskCatalog = TaskCatalog();
-  final TaskDetailLoadState _detailLoadState = TaskDetailLoadState();
+  final TaskHistoryLoadState _historyLoadState = TaskHistoryLoadState();
+  final TaskMessageQueue<_PendingTaskPrompt> _messageQueue = TaskMessageQueue();
+  final Set<String> _flushingThreadIds = {};
 
   List<HostProfile> _profiles = const [];
   List<RemoteProject> _projects = const [];
@@ -130,6 +140,15 @@ final class AppController extends ChangeNotifier {
   bool get hasMoreUnassignedTasks => _taskCatalog.unassignedNextCursor != null;
   bool get isLoadingProjectPage => _loadingProjectPage;
   bool get isLoadingUnassignedPage => _loadingUnassignedPage;
+  bool get hasOlderTaskContext =>
+      _historyLoadState.taskId == _selectedTaskId && _historyLoadState.hasOlder;
+  bool get isLoadingOlderTaskContext =>
+      _historyLoadState.taskId == _selectedTaskId &&
+      _historyLoadState.isLoadingOlder;
+  String? get olderTaskContextError =>
+      _historyLoadState.taskId == _selectedTaskId
+          ? _historyLoadState.olderError
+          : null;
 
   HostProfile? get selectedHost =>
       _profiles.where((profile) => profile.id == _selectedHostId).firstOrNull;
@@ -153,10 +172,11 @@ final class AppController extends ChangeNotifier {
   bool get isConnected => _connectionPhase == RemoteConnectionPhase.connected;
 
   bool isTaskDetailLoading(String taskId) =>
-      _detailLoadState.loadingTaskId == taskId;
+      _historyLoadState.taskId == taskId && _historyLoadState.isInitialLoading;
 
-  String? taskDetailError(String taskId) =>
-      _detailLoadState.taskId == taskId ? _detailLoadState.error : null;
+  String? taskDetailError(String taskId) => _historyLoadState.taskId == taskId
+      ? _historyLoadState.initialError
+      : null;
 
   Future<void> initialize() async {
     HostProfile? autoConnectProfile;
@@ -204,6 +224,8 @@ final class AppController extends ChangeNotifier {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnectAttempt = 0;
+    _messageQueue.clear();
+    _flushingThreadIds.clear();
     await _closeTransport();
     if (attempt != _connectionAttempt) return;
     _epoch = _taskReducer.beginConnection();
@@ -241,7 +263,7 @@ final class AppController extends ChangeNotifier {
         _projects = projects;
         _selectedProjectId = projects.firstOrNull?.id;
         _taskCatalog.clear();
-        _detailLoadState.clear();
+        _historyLoadState.clear();
       }
       stage = ConnectionStage.ssh;
       ssh = await _connector.connect(
@@ -482,6 +504,7 @@ final class AppController extends ChangeNotifier {
           );
         }
         notifyListeners();
+        if (isConnected) _flushReadyQueuedPrompts();
         if (_refreshQueued) {
           resetNext = _refreshQueuedResetPages;
         }
@@ -498,35 +521,63 @@ final class AppController extends ChangeNotifier {
   Future<void> selectTask(String taskId) async {
     _selectedTaskId = taskId;
     _section = AppSection.tasks;
-    await _loadTaskDetails(taskId);
+    _taskReducer.replaceItems(_epoch, taskId, const []);
+    await _loadInitialTaskContext(taskId);
   }
 
   void clearSelectedTask() {
     _selectedTaskId = null;
-    _detailLoadState.clear();
+    _historyLoadState.clear();
     notifyListeners();
   }
 
   Future<void> retrySelectedTaskDetails() async {
     final taskId = _selectedTaskId;
-    if (taskId != null) await _loadTaskDetails(taskId);
+    if (taskId != null) await _loadInitialTaskContext(taskId);
   }
 
-  Future<void> _loadTaskDetails(String taskId) async {
+  Future<void> _loadInitialTaskContext(String taskId) async {
     final api = _api;
     final epoch = _epoch;
     if (api == null || !isConnected) return;
-    final generation = _detailLoadState.begin(taskId);
+    final token = _historyLoadState.beginInitial(taskId);
     notifyListeners();
     try {
-      final detail = await api.readThread(taskId);
+      final page = await api.readThreadTurnsPage(taskId);
       if (api != _api || epoch != _epoch) return;
-      final loadedByUs = _loadedThreadIds.intersection(_ownedThreadIds);
-      _taskReducer.applySnapshot(epoch, detail, loadedByUs);
-      _detailLoadState.complete(generation);
+      if (!_historyLoadState.complete(token, nextCursor: page.nextCursor)) {
+        return;
+      }
+      _taskReducer.prependItems(epoch, taskId, page.items);
     } catch (exception) {
       if (api != _api || epoch != _epoch) return;
-      _detailLoadState.fail(generation, _friendlyError(exception));
+      _historyLoadState.fail(token, _friendlyError(exception));
+    }
+    notifyListeners();
+  }
+
+  Future<void> loadOlderSelectedTaskContext() async {
+    final api = _api;
+    final epoch = _epoch;
+    if (api == null || !isConnected) return;
+    final token = _historyLoadState.beginOlder();
+    if (token == null) return;
+    notifyListeners();
+    try {
+      final page = await api.readThreadTurnsPage(
+        token.taskId,
+        cursor: token.cursor,
+      );
+      if (api != _api || epoch != _epoch || token.taskId != _selectedTaskId) {
+        return;
+      }
+      if (!_historyLoadState.complete(token, nextCursor: page.nextCursor)) {
+        return;
+      }
+      _taskReducer.prependItems(epoch, token.taskId, page.items);
+    } catch (exception) {
+      if (api != _api || epoch != _epoch) return;
+      _historyLoadState.fail(token, _friendlyError(exception));
     }
     notifyListeners();
   }
@@ -539,7 +590,7 @@ final class AppController extends ChangeNotifier {
     if (_selectedProjectId == projectId) return;
     _selectedProjectId = projectId;
     _selectedTaskId = null;
-    _detailLoadState.clear();
+    _historyLoadState.clear();
     _taskCatalog.clearProjectPage();
     notifyListeners();
     await refreshTasks(resetPages: true);
@@ -574,7 +625,7 @@ final class AppController extends ChangeNotifier {
     _projects = await _store.readProjects(hostId);
     _selectedProjectId = id;
     _selectedTaskId = null;
-    _detailLoadState.clear();
+    _historyLoadState.clear();
     _taskCatalog.clearProjectPage();
     notifyListeners();
     await refreshTasks(resetPages: true);
@@ -588,7 +639,7 @@ final class AppController extends ChangeNotifier {
     if (_selectedProjectId == projectId) {
       _selectedProjectId = _projects.firstOrNull?.id;
       _selectedTaskId = null;
-      _detailLoadState.clear();
+      _historyLoadState.clear();
       _taskCatalog.clearProjectPage();
     }
     notifyListeners();
@@ -702,20 +753,100 @@ final class AppController extends ChangeNotifier {
     await refreshTasks();
   }
 
-  Future<void> sendPrompt(String prompt, {RemoteSkill? skill}) async {
+  Future<TaskMessageDisposition> sendPrompt(
+    String prompt, {
+    RemoteSkill? skill,
+  }) async {
     final api = _requireApi();
     final attempt = _connectionAttempt;
     final epoch = _epoch;
     final profileId = _selectedHostId!;
     final task = selectedTask;
     if (task == null) throw StateError('Select or create a task first.');
-    if (!task.canWrite) {
-      throw StateError('This running task is owned by another Codex client.');
+    final normalized = prompt.trim();
+    if (normalized.isEmpty) throw ArgumentError('Message is required.');
+    final pending = _PendingTaskPrompt(
+      text: skill == null ? normalized : '\$${skill.name} $normalized',
+      skill: skill,
+    );
+    if (_messageQueue.hasPending(task.id)) {
+      _messageQueue.enqueue(task.id, pending);
+      unawaited(_flushQueuedPrompt(task.id));
+      return TaskMessageDisposition.queued;
     }
+
+    var activeTurnId = _activeTurnIds[task.id];
+    if (activeTurnId == null &&
+        (task.status == TaskStatus.running ||
+            task.status == TaskStatus.queued)) {
+      activeTurnId = await api.readActiveTurnId(task.id);
+      _ensureCurrentSession(api, attempt, epoch, profileId);
+      if (activeTurnId != null) _activeTurnIds[task.id] = activeTurnId;
+    }
+    switch (chooseTaskMessageRoute(
+      task.status,
+      activeTurnId: activeTurnId,
+    )) {
+      case TaskMessageRoute.steer:
+        return _steerPrompt(
+          task,
+          pending,
+          activeTurnId!,
+          api: api,
+          attempt: attempt,
+          epoch: epoch,
+          profileId: profileId,
+        );
+      case TaskMessageRoute.queue:
+        _messageQueue.enqueue(task.id, pending);
+        return TaskMessageDisposition.queued;
+      case TaskMessageRoute.start:
+        await _startPendingPrompt(task, pending);
+        return TaskMessageDisposition.started;
+    }
+  }
+
+  Future<TaskMessageDisposition> _steerPrompt(
+    TaskRecord task,
+    _PendingTaskPrompt pending,
+    String turnId, {
+    required CodexRemoteApi api,
+    required int attempt,
+    required int epoch,
+    required String profileId,
+  }) async {
+    try {
+      await api.steerTurn(task.id, turnId, pending.text);
+      _ensureCurrentSession(api, attempt, epoch, profileId);
+      return TaskMessageDisposition.steered;
+    } on RpcRemoteException {
+      final refreshedTurnId = await api.readActiveTurnId(task.id);
+      _ensureCurrentSession(api, attempt, epoch, profileId);
+      if (refreshedTurnId == null) {
+        _activeTurnIds.remove(task.id);
+        _messageQueue.enqueue(task.id, pending);
+        return TaskMessageDisposition.queued;
+      }
+      if (refreshedTurnId == turnId) rethrow;
+      _activeTurnIds[task.id] = refreshedTurnId;
+      await api.steerTurn(task.id, refreshedTurnId, pending.text);
+      _ensureCurrentSession(api, attempt, epoch, profileId);
+      return TaskMessageDisposition.steered;
+    }
+  }
+
+  Future<void> _startPendingPrompt(
+    TaskRecord task,
+    _PendingTaskPrompt pending,
+  ) async {
+    final api = _requireApi();
+    final attempt = _connectionAttempt;
+    final epoch = _epoch;
+    final profileId = _selectedHostId!;
     if (!_ownedThreadIds.contains(task.id) ||
         !_loadedThreadIds.contains(task.id)) {
       await api.resumeThread(task.id);
-      if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
+      _ensureCurrentSession(api, attempt, epoch, profileId);
       if (!await _claimThread(
         task.id,
         api: api,
@@ -723,18 +854,47 @@ final class AppController extends ChangeNotifier {
         epoch: epoch,
         profileId: profileId,
       )) {
-        return;
+        throw StateError('Connection changed before the task was claimed.');
       }
       _loadedThreadIds = {..._loadedThreadIds, task.id};
     }
-    final text = skill == null ? prompt : '\$${skill.name} $prompt';
-    await api.startTurn(task.id, text, skill: skill);
-    if (!_isCurrentSession(api, attempt, epoch, profileId)) return;
+    await api.startTurn(task.id, pending.text, skill: pending.skill);
+    _ensureCurrentSession(api, attempt, epoch, profileId);
     _taskReducer.applyEvent(
       _epoch,
       TaskEvent.statusChanged(task.id, TaskStatus.running),
     );
     notifyListeners();
+  }
+
+  Future<void> _flushQueuedPrompt(String threadId) async {
+    if (!_flushingThreadIds.add(threadId)) return;
+    try {
+      final pending = _messageQueue.peek(threadId);
+      final task = _taskReducer.state.tasks[threadId];
+      if (pending == null ||
+          task == null ||
+          task.status == TaskStatus.running ||
+          task.status == TaskStatus.queued ||
+          !isConnected) {
+        return;
+      }
+      await _startPendingPrompt(task, pending);
+      if (identical(_messageQueue.peek(threadId), pending)) {
+        _messageQueue.take(threadId);
+      }
+    } catch (exception) {
+      _error = _friendlyError(exception);
+      notifyListeners();
+    } finally {
+      _flushingThreadIds.remove(threadId);
+    }
+  }
+
+  void _flushReadyQueuedPrompts() {
+    for (final threadId in _messageQueue.threadIds) {
+      unawaited(_flushQueuedPrompt(threadId));
+    }
   }
 
   Future<List<RemoteSkill>> listSkillsForSelectedTask() async {
@@ -882,6 +1042,17 @@ final class AppController extends ChangeNotifier {
       epoch == _epoch &&
       profileId == _selectedHostId;
 
+  void _ensureCurrentSession(
+    CodexRemoteApi api,
+    int attempt,
+    int epoch,
+    String profileId,
+  ) {
+    if (!_isCurrentSession(api, attempt, epoch, profileId)) {
+      throw StateError('The remote connection changed while sending.');
+    }
+  }
+
   void _handleNotification(int attempt, RpcNotification notification) {
     if (attempt != _connectionAttempt) return;
     final event = CodexRemoteApi.parseNotification(
@@ -902,9 +1073,7 @@ final class AppController extends ChangeNotifier {
     } else if (notification.method == 'turn/completed' && threadId != null) {
       _activeTurnIds.remove(threadId);
       unawaited(refreshTasks());
-      if (threadId == _selectedTaskId) {
-        unawaited(_loadTaskDetails(threadId));
-      }
+      unawaited(_flushQueuedPrompt(threadId));
     }
     notifyListeners();
   }
@@ -938,8 +1107,10 @@ final class AppController extends ChangeNotifier {
     _selectedProjectId = null;
     _projects = const [];
     _taskCatalog.clear();
-    _detailLoadState.clear();
+    _historyLoadState.clear();
     _activeTurnIds.clear();
+    _messageQueue.clear();
+    _flushingThreadIds.clear();
     _loadedThreadIds = {};
     _ownedThreadIds = {};
     _epoch = _taskReducer.beginConnection();

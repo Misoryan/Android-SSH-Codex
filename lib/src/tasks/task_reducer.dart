@@ -288,6 +288,43 @@ final class TaskReducer {
     );
   }
 
+  void replaceItems(int epoch, String taskId, List<TaskItem> items) {
+    if (epoch != _state.epoch) return;
+    final current = _state.tasks[taskId] ??
+        TaskRecord.placeholder(taskId, _state.eventRevision);
+    _replaceTaskItems(current, items);
+  }
+
+  void prependItems(int epoch, String taskId, List<TaskItem> olderItems) {
+    if (epoch != _state.epoch) return;
+    final current = _state.tasks[taskId] ??
+        TaskRecord.placeholder(taskId, _state.eventRevision);
+    final currentById = {
+      for (final item in current.items) item.id: item,
+    };
+    final seen = <String>{};
+    final merged = <TaskItem>[];
+    for (final item in olderItems) {
+      if (!seen.add(item.id)) continue;
+      merged.add(currentById[item.id] ?? item);
+    }
+    for (final item in current.items) {
+      if (seen.add(item.id)) merged.add(item);
+    }
+    _replaceTaskItems(current, merged);
+  }
+
+  void _replaceTaskItems(TaskRecord current, List<TaskItem> items) {
+    final tasks = Map<String, TaskRecord>.of(_state.tasks)
+      ..[current.id] = current.copyWith(items: List.unmodifiable(items));
+    _state = TaskState(
+      epoch: _state.epoch,
+      refreshGeneration: _state.refreshGeneration,
+      eventRevision: _state.eventRevision,
+      tasks: Map.unmodifiable(tasks),
+    );
+  }
+
   void applyEvent(int epoch, TaskEvent event) {
     if (epoch != _state.epoch) return;
     final revision = _state.eventRevision + 1;

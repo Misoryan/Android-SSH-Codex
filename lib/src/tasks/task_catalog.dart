@@ -128,6 +128,115 @@ final class TaskDetailLoadState {
   }
 }
 
+final class TaskHistoryPageToken {
+  const TaskHistoryPageToken._({
+    required this.taskId,
+    required this.cursor,
+    required this.generation,
+    required this.isInitial,
+  });
+
+  final String taskId;
+  final String? cursor;
+  final int generation;
+  final bool isInitial;
+}
+
+final class TaskHistoryLoadState {
+  var _generation = 0;
+  String? _taskId;
+  String? _nextCursor;
+  bool _isInitialLoading = false;
+  bool _isLoadingOlder = false;
+  String? _initialError;
+  String? _olderError;
+
+  String? get taskId => _taskId;
+  String? get nextCursor => _nextCursor;
+  bool get hasOlder => _nextCursor != null;
+  bool get isInitialLoading => _isInitialLoading;
+  bool get isLoadingOlder => _isLoadingOlder;
+  String? get initialError => _initialError;
+  String? get olderError => _olderError;
+
+  TaskHistoryPageToken beginInitial(String taskId) {
+    _generation++;
+    _taskId = taskId;
+    _nextCursor = null;
+    _isInitialLoading = true;
+    _isLoadingOlder = false;
+    _initialError = null;
+    _olderError = null;
+    return TaskHistoryPageToken._(
+      taskId: taskId,
+      cursor: null,
+      generation: _generation,
+      isInitial: true,
+    );
+  }
+
+  TaskHistoryPageToken? beginOlder() {
+    final taskId = _taskId;
+    final cursor = _nextCursor;
+    if (taskId == null ||
+        cursor == null ||
+        _isInitialLoading ||
+        _isLoadingOlder) {
+      return null;
+    }
+    _generation++;
+    _isLoadingOlder = true;
+    _olderError = null;
+    return TaskHistoryPageToken._(
+      taskId: taskId,
+      cursor: cursor,
+      generation: _generation,
+      isInitial: false,
+    );
+  }
+
+  bool complete(
+    TaskHistoryPageToken token, {
+    required String? nextCursor,
+  }) {
+    if (!_accepts(token)) return false;
+    _nextCursor = nextCursor;
+    if (token.isInitial) {
+      _isInitialLoading = false;
+      _initialError = null;
+    } else {
+      _isLoadingOlder = false;
+      _olderError = null;
+    }
+    return true;
+  }
+
+  bool fail(TaskHistoryPageToken token, String error) {
+    if (!_accepts(token)) return false;
+    if (token.isInitial) {
+      _isInitialLoading = false;
+      _initialError = error;
+    } else {
+      _isLoadingOlder = false;
+      _olderError = error;
+    }
+    return true;
+  }
+
+  void clear() {
+    _generation++;
+    _taskId = null;
+    _nextCursor = null;
+    _isInitialLoading = false;
+    _isLoadingOlder = false;
+    _initialError = null;
+    _olderError = null;
+  }
+
+  bool _accepts(TaskHistoryPageToken token) =>
+      token.generation == _generation && token.taskId == _taskId;
+}
+
 List<TaskSnapshot> _unassigned(
   List<TaskSnapshot> tasks,
   List<RemoteProject> projects,
