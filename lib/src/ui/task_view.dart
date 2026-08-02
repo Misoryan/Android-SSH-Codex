@@ -588,14 +588,27 @@ class _TaskTimelineState extends State<TaskTimeline> {
       _loadOlder();
     }
     final awayFromLatest = _distanceFromLatest > _followThreshold;
-    if (awayFromLatest == _showJumpToLatest &&
-        _followLatest == !awayFromLatest) {
-      return;
+    final showJump = awayFromLatest && !_followLatest;
+    if (showJump == _showJumpToLatest) return;
+    setState(() => _showJumpToLatest = showJump);
+  }
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    final userDriven = notification is ScrollUpdateNotification &&
+        notification.dragDetails != null;
+    final userOverscroll = notification is OverscrollNotification &&
+        notification.dragDetails != null;
+    if (!userDriven && !userOverscroll) return false;
+    final followLatest = _distanceFromLatest <= _followThreshold;
+    if (followLatest == _followLatest &&
+        _showJumpToLatest == !followLatest) {
+      return false;
     }
     setState(() {
-      _showJumpToLatest = awayFromLatest;
-      _followLatest = !awayFromLatest;
+      _followLatest = followLatest;
+      _showJumpToLatest = !followLatest;
     });
+    return false;
   }
 
   Future<void> _loadOlder({bool retry = false}) async {
@@ -613,17 +626,32 @@ class _TaskTimelineState extends State<TaskTimeline> {
     setState(() => _requestingOlder = true);
     try {
       await load();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_scrollController.hasClients) return;
-        final addedExtent =
-            _scrollController.position.maxScrollExtent - previousExtent;
-        if (addedExtent > 0) {
-          _scrollController.jumpTo(previousOffset + addedExtent);
-        }
-      });
+      _preservePrependAnchor(previousExtent, previousOffset, attempts: 3);
     } finally {
       if (mounted) setState(() => _requestingOlder = false);
     }
+  }
+
+  void _preservePrependAnchor(
+    double previousExtent,
+    double previousOffset, {
+    required int attempts,
+  }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final addedExtent =
+          _scrollController.position.maxScrollExtent - previousExtent;
+      if (addedExtent > 0) {
+        _scrollController.jumpTo(previousOffset + addedExtent);
+      }
+      if (attempts > 1) {
+        _preservePrependAnchor(
+          previousExtent,
+          previousOffset,
+          attempts: attempts - 1,
+        );
+      }
+    });
   }
 
   double get _distanceFromLatest =>
@@ -639,7 +667,10 @@ class _TaskTimelineState extends State<TaskTimeline> {
 
   void _scrollToLatest({bool animated = true}) {
     if (!_scrollController.hasClients) return;
-    _followLatest = true;
+    setState(() {
+      _followLatest = true;
+      _showJumpToLatest = false;
+    });
     final latest = _scrollController.position.maxScrollExtent;
     if (animated) {
       _scrollController.animateTo(
@@ -685,19 +716,22 @@ class _TaskTimelineState extends State<TaskTimeline> {
     }
     return Stack(
       children: [
-        SelectionArea(
-          child: ListView.builder(
-            controller: _scrollController,
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 72),
-            itemCount: widget.items.length + 1,
-            itemBuilder: (_, index) => index == 0
-                ? _OlderContextControl(
-                    loading: widget.loadingOlder || _requestingOlder,
-                    error: widget.olderError,
-                    hasOlder: widget.hasOlder,
-                    onRetry: () => _loadOlder(retry: true),
-                  )
-                : TimelineItemView(item: widget.items[index - 1]),
+        NotificationListener<ScrollNotification>(
+          onNotification: _handleScrollNotification,
+          child: SelectionArea(
+            child: ListView.builder(
+              controller: _scrollController,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 72),
+              itemCount: widget.items.length + 1,
+              itemBuilder: (_, index) => index == 0
+                  ? _OlderContextControl(
+                      loading: widget.loadingOlder || _requestingOlder,
+                      error: widget.olderError,
+                      hasOlder: widget.hasOlder,
+                      onRetry: () => _loadOlder(retry: true),
+                    )
+                  : TimelineItemView(item: widget.items[index - 1]),
+            ),
           ),
         ),
         if (_showJumpToLatest)
