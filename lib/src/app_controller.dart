@@ -85,6 +85,12 @@ Future<String> resolveCodexSocketForProfile(
   }
 }
 
+bool hasRemoteNotificationVisibleChange({
+  required TaskEvent? event,
+  required bool activeTurnChanged,
+}) =>
+    event != null || activeTurnChanged;
+
 final class AppController extends ChangeNotifier {
   AppController({required ProfileStore store})
       : _store = store,
@@ -1113,18 +1119,25 @@ final class AppController extends ChangeNotifier {
         (notification.params['thread'] is Map
             ? (notification.params['thread'] as Map)['id'] as String?
             : null);
+    var activeTurnChanged = false;
     if (notification.method == 'turn/started') {
       final turn = notification.params['turn'];
       final turnId = turn is Map ? turn['id'] as String? : null;
       if (threadId != null && turnId != null) {
+        activeTurnChanged = _activeTurnIds[threadId] != turnId;
         _activeTurnIds[threadId] = turnId;
       }
     } else if (notification.method == 'turn/completed' && threadId != null) {
-      _activeTurnIds.remove(threadId);
+      activeTurnChanged = _activeTurnIds.remove(threadId) != null;
       unawaited(refreshTasks());
       unawaited(_flushQueuedPrompt(threadId));
     }
-    notifyListeners();
+    if (hasRemoteNotificationVisibleChange(
+      event: event,
+      activeTurnChanged: activeTurnChanged,
+    )) {
+      notifyListeners();
+    }
   }
 
   void _applyAgentDeltaBatch(List<TaskEvent> events) {
