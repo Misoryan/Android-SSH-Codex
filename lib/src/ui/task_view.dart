@@ -600,8 +600,7 @@ class _TaskTimelineState extends State<TaskTimeline> {
         notification.dragDetails != null;
     if (!userDriven && !userOverscroll) return false;
     final followLatest = _distanceFromLatest <= _followThreshold;
-    if (followLatest == _followLatest &&
-        _showJumpToLatest == !followLatest) {
+    if (followLatest == _followLatest && _showJumpToLatest == !followLatest) {
       return false;
     }
     setState(() {
