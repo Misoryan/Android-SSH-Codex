@@ -166,10 +166,9 @@ final class AppController extends ChangeNotifier {
       _historyLoadState.taskId == taskId &&
       _historyLoadState.isInitialLoading;
 
-  String? taskDetailError(String taskId) =>
-      _historyLoadState.taskId == taskId
-          ? _historyLoadState.initialError
-          : null;
+  String? taskDetailError(String taskId) => _historyLoadState.taskId == taskId
+      ? _historyLoadState.initialError
+      : null;
 
   Future<void> initialize() async {
     HostProfile? autoConnectProfile;
