@@ -6,6 +6,7 @@ import '../tasks/task_message_queue.dart';
 import '../tasks/task_reducer.dart';
 import 'composer_completion.dart';
 import 'timeline_entries.dart';
+import 'turn_settings_picker.dart';
 import 'widgets/timeline_item.dart';
 
 bool isTaskComposerEnabled({
@@ -38,6 +39,7 @@ class _TaskViewState extends State<TaskView> {
   var _commandBusy = false;
   var _lastCommandSucceeded = true;
   RemoteSkill? _selectedSkill;
+  TurnSettings _turnSettings = const TurnSettings();
   List<RemoteSkill>? _availableSkills;
   List<ComposerCompletion> _completions = const [];
   var _loadingSkills = false;
@@ -54,6 +56,7 @@ class _TaskViewState extends State<TaskView> {
     if (oldWidget.task.id != widget.task.id) {
       _composer.clear();
       _selectedSkill = null;
+      _turnSettings = const TurnSettings();
       _availableSkills = null;
       _completions = const [];
       _sending = false;
@@ -125,6 +128,15 @@ class _TaskViewState extends State<TaskView> {
               ),
             ),
           ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: TurnSettingsPicker(
+            models: widget.controller.models,
+            value: _turnSettings,
+            enabled: widget.controller.isConnected && !_sending,
+            onChanged: (value) => setState(() => _turnSettings = value),
+          ),
+        ),
         const Divider(height: 1),
         _Composer(
           controller: _composer,
@@ -154,8 +166,12 @@ class _TaskViewState extends State<TaskView> {
     if (text.isEmpty) return;
     setState(() => _sending = true);
     try {
-      final disposition =
-          await widget.controller.sendPrompt(text, skill: _selectedSkill);
+      final disposition = await widget.controller.sendPrompt(
+        text,
+        skill: _selectedSkill,
+        model: _turnSettings.model,
+        effort: _turnSettings.effort,
+      );
       if (!mounted) return;
       _composer.clear();
       setState(() {
