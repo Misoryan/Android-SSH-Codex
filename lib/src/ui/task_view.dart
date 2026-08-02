@@ -1006,9 +1006,8 @@ class _Composer extends StatelessWidget {
                       maxLines: 5,
                       textCapitalization: TextCapitalization.sentences,
                       decoration: InputDecoration(
-                        hintText: inputEnabled
-                            ? 'Message Codex'
-                            : 'Read-only task',
+                        hintText:
+                            inputEnabled ? 'Message Codex' : 'Read-only task',
                       ),
                     ),
                   ),
