@@ -322,4 +322,26 @@ void main() {
       isEmpty,
     );
   });
+
+  test('an external running task still accepts composer input', () {
+    final external = TaskRecord(
+      id: 'external',
+      title: 'External task',
+      status: TaskStatus.running,
+      cwd: '/srv/mobile',
+      updatedAt: DateTime.utc(2026, 8, 2),
+      items: const [],
+      ownership: TaskOwnership.external,
+      revision: 1,
+    );
+
+    expect(
+      isTaskComposerEnabled(
+        task: external,
+        connected: true,
+        sending: false,
+      ),
+      isTrue,
+    );
+  });
 }
