@@ -430,6 +430,40 @@ void main() {
       isTrue,
     );
   });
+
+  test('sending locks submission without locking composer input', () {
+    final available = task('available', 'Available task', '/srv/mobile');
+
+    expect(
+      isTaskComposerInputEnabled(task: available, connected: true),
+      isTrue,
+    );
+    expect(
+      isTaskComposerSendEnabled(
+        task: available,
+        connected: true,
+        sending: true,
+      ),
+      isFalse,
+    );
+  });
+
+  test('a failed send restores its draft only when no new draft was typed', () {
+    expect(
+      restoreComposerDraft(
+        currentText: '',
+        submittedText: 'original message',
+      ),
+      'original message',
+    );
+    expect(
+      restoreComposerDraft(
+        currentText: 'next message',
+        submittedText: 'original message',
+      ),
+      'next message',
+    );
+  });
 }
 
 List<TaskItem> longTimelineItems() {

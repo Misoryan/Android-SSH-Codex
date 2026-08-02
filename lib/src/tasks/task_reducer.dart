@@ -326,63 +326,89 @@ final class TaskReducer {
   }
 
   void applyEvent(int epoch, TaskEvent event) {
-    if (epoch != _state.epoch) return;
-    final revision = _state.eventRevision + 1;
-    var current = _state.tasks[event.taskId] ??
-        TaskRecord.placeholder(event.taskId, revision);
+    applyEvents(epoch, [event]);
+  }
 
-    switch (event._type) {
-      case _TaskEventType.status:
-        final active = event.status == TaskStatus.running ||
-            event.status == TaskStatus.queued;
-        current = current.copyWith(
-          status: event.status,
-          ownership: active ? current.ownership : TaskOwnership.available,
-          updatedAt: DateTime.now().toUtc(),
-          revision: revision,
-        );
-        break;
-      case _TaskEventType.agentDelta:
+  void applyEvents(int epoch, List<TaskEvent> events) {
+    if (epoch != _state.epoch) return;
+    final coalesced = <TaskEvent>[];
+    for (final event in events) {
+      if (event._type == _TaskEventType.agentDelta) {
         final eventId = event.eventId;
         if (eventId != null) {
           final seen = _seenEvents.putIfAbsent(event.taskId, () => <String>{});
-          if (!seen.add(eventId)) return;
+          if (!seen.add(eventId)) continue;
         }
-        final items = current.items.toList();
-        final index = items.indexWhere((item) => item.id == event.itemId);
-        if (index == -1) {
-          items.add(TaskItem(
-            id: event.itemId!,
-            kind: TaskItemKind.agent,
-            text: event.delta!,
-          ));
-        } else {
-          items[index] = items[index].copyWith(
-            text: '${items[index].text}${event.delta}',
+        final previous = coalesced.isEmpty ? null : coalesced.last;
+        if (previous?._type == _TaskEventType.agentDelta &&
+            previous?.taskId == event.taskId &&
+            previous?.itemId == event.itemId) {
+          coalesced[coalesced.length - 1] = TaskEvent.agentDelta(
+            event.taskId,
+            event.itemId,
+            null,
+            '${previous!.delta}${event.delta}',
           );
+          continue;
         }
-        current = current.copyWith(
-          items: List.unmodifiable(items),
-          revision: revision,
-        );
-        break;
-      case _TaskEventType.item:
-        final items = current.items.toList();
-        final index = items.indexWhere((item) => item.id == event.item!.id);
-        if (index == -1) {
-          items.add(event.item!);
-        } else {
-          items[index] = event.item!;
-        }
-        current = current.copyWith(
-          items: List.unmodifiable(items),
-          revision: revision,
-        );
-        break;
+      }
+      coalesced.add(event);
+    }
+    if (coalesced.isEmpty) return;
+
+    final revision = _state.eventRevision + 1;
+    final tasks = Map<String, TaskRecord>.of(_state.tasks);
+    for (final event in coalesced) {
+      var current =
+          tasks[event.taskId] ?? TaskRecord.placeholder(event.taskId, revision);
+
+      switch (event._type) {
+        case _TaskEventType.status:
+          final active = event.status == TaskStatus.running ||
+              event.status == TaskStatus.queued;
+          current = current.copyWith(
+            status: event.status,
+            ownership: active ? current.ownership : TaskOwnership.available,
+            updatedAt: DateTime.now().toUtc(),
+            revision: revision,
+          );
+          break;
+        case _TaskEventType.agentDelta:
+          final items = current.items.toList();
+          final index = items.indexWhere((item) => item.id == event.itemId);
+          if (index == -1) {
+            items.add(TaskItem(
+              id: event.itemId!,
+              kind: TaskItemKind.agent,
+              text: event.delta!,
+            ));
+          } else {
+            items[index] = items[index].copyWith(
+              text: '${items[index].text}${event.delta}',
+            );
+          }
+          current = current.copyWith(
+            items: List.unmodifiable(items),
+            revision: revision,
+          );
+          break;
+        case _TaskEventType.item:
+          final items = current.items.toList();
+          final index = items.indexWhere((item) => item.id == event.item!.id);
+          if (index == -1) {
+            items.add(event.item!);
+          } else {
+            items[index] = event.item!;
+          }
+          current = current.copyWith(
+            items: List.unmodifiable(items),
+            revision: revision,
+          );
+          break;
+      }
+      tasks[event.taskId] = current;
     }
 
-    final tasks = Map<String, TaskRecord>.of(_state.tasks)
-      ..[event.taskId] = current;
     _state = TaskState(
       epoch: _state.epoch,
       refreshGeneration: _state.refreshGeneration,

@@ -9,6 +9,7 @@ import 'protocol/codex_remote_api.dart';
 import 'protocol/json_rpc_client.dart';
 import 'protocol/websocket_rpc_transport.dart';
 import 'tasks/task_catalog.dart';
+import 'tasks/task_event_batcher.dart';
 import 'tasks/task_message_queue.dart';
 import 'tasks/task_reducer.dart';
 import 'transport/codex_daemon.dart';
@@ -84,6 +85,12 @@ Future<String> resolveCodexSocketForProfile(
   }
 }
 
+bool hasRemoteNotificationVisibleChange({
+  required TaskEvent? event,
+  required bool activeTurnChanged,
+}) =>
+    event != null || activeTurnChanged;
+
 final class AppController extends ChangeNotifier {
   AppController({required ProfileStore store})
       : _store = store,
@@ -94,6 +101,9 @@ final class AppController extends ChangeNotifier {
   final ProfileStore _store;
   final SshConnector _connector;
   final TaskReducer _taskReducer = TaskReducer();
+  late final TaskEventBatcher _agentDeltaBatcher = TaskEventBatcher(
+    onFlush: _applyAgentDeltaBatch,
+  );
   final TaskCatalog _taskCatalog = TaskCatalog();
   final TaskHistoryLoadState _historyLoadState = TaskHistoryLoadState();
   final TaskMessageQueue<_PendingTaskPrompt> _messageQueue = TaskMessageQueue();
@@ -237,6 +247,7 @@ final class AppController extends ChangeNotifier {
     _flushingThreadIds.clear();
     await _closeTransport();
     if (attempt != _connectionAttempt) return;
+    _agentDeltaBatcher.clear();
     _epoch = _taskReducer.beginConnection();
     await _openConnection(profile, attempt: attempt, reconnecting: false);
   }
@@ -407,6 +418,7 @@ final class AppController extends ChangeNotifier {
       _reconnectTimer = null;
       if (attempt != _connectionAttempt) return;
       final nextAttempt = ++_connectionAttempt;
+      _agentDeltaBatcher.clear();
       _epoch = _taskReducer.beginConnection(clearTasks: false);
       unawaited(_openConnection(
         profile,
@@ -1094,22 +1106,42 @@ final class AppController extends ChangeNotifier {
       notification.method,
       notification.params,
     );
+    if (notification.method == 'item/agentMessage/delta' && event != null) {
+      _agentDeltaBatcher.add(event);
+      return;
+    }
+    if (notification.method == 'item/completed' ||
+        notification.method == 'turn/completed') {
+      _agentDeltaBatcher.flush();
+    }
     if (event != null) _taskReducer.applyEvent(_epoch, event);
     final threadId = notification.params['threadId'] as String? ??
         (notification.params['thread'] is Map
             ? (notification.params['thread'] as Map)['id'] as String?
             : null);
+    var activeTurnChanged = false;
     if (notification.method == 'turn/started') {
       final turn = notification.params['turn'];
       final turnId = turn is Map ? turn['id'] as String? : null;
       if (threadId != null && turnId != null) {
+        activeTurnChanged = _activeTurnIds[threadId] != turnId;
         _activeTurnIds[threadId] = turnId;
       }
     } else if (notification.method == 'turn/completed' && threadId != null) {
-      _activeTurnIds.remove(threadId);
+      activeTurnChanged = _activeTurnIds.remove(threadId) != null;
       unawaited(refreshTasks());
       unawaited(_flushQueuedPrompt(threadId));
     }
+    if (hasRemoteNotificationVisibleChange(
+      event: event,
+      activeTurnChanged: activeTurnChanged,
+    )) {
+      notifyListeners();
+    }
+  }
+
+  void _applyAgentDeltaBatch(List<TaskEvent> events) {
+    _taskReducer.applyEvents(_epoch, events);
     notifyListeners();
   }
 
@@ -1149,6 +1181,7 @@ final class AppController extends ChangeNotifier {
     _flushingThreadIds.clear();
     _loadedThreadIds = {};
     _ownedThreadIds = {};
+    _agentDeltaBatcher.clear();
     _epoch = _taskReducer.beginConnection();
     _approvals = const [];
     await _closeTransport();
@@ -1186,6 +1219,7 @@ final class AppController extends ChangeNotifier {
   Future<void> _closeTransport() async {
     _refreshTimer?.cancel();
     _refreshTimer = null;
+    _agentDeltaBatcher.clear();
     _approvals = const [];
     _models = const [];
     final notificationSubscription = _notificationSubscription;
@@ -1217,6 +1251,7 @@ final class AppController extends ChangeNotifier {
     _cancelHostKeyPrompt();
     _reconnectTimer?.cancel();
     _refreshTimer?.cancel();
+    _agentDeltaBatcher.dispose();
     unawaited(_closeTransport());
     super.dispose();
   }

@@ -9,19 +9,42 @@ import 'timeline_entries.dart';
 import 'turn_settings_picker.dart';
 import 'widgets/timeline_item.dart';
 
+bool _taskAcceptsMessages(TaskRecord task) => switch (task.ownership) {
+      TaskOwnership.available ||
+      TaskOwnership.local ||
+      TaskOwnership.external =>
+        true,
+    };
+
+bool isTaskComposerInputEnabled({
+  required TaskRecord task,
+  required bool connected,
+}) =>
+    _taskAcceptsMessages(task) && connected;
+
+bool isTaskComposerSendEnabled({
+  required TaskRecord task,
+  required bool connected,
+  required bool sending,
+}) =>
+    isTaskComposerInputEnabled(task: task, connected: connected) && !sending;
+
 bool isTaskComposerEnabled({
   required TaskRecord task,
   required bool connected,
   required bool sending,
-}) {
-  final acceptsMessages = switch (task.ownership) {
-    TaskOwnership.available ||
-    TaskOwnership.local ||
-    TaskOwnership.external =>
-      true,
-  };
-  return acceptsMessages && connected && !sending;
-}
+}) =>
+    isTaskComposerSendEnabled(
+      task: task,
+      connected: connected,
+      sending: sending,
+    );
+
+String restoreComposerDraft({
+  required String currentText,
+  required String submittedText,
+}) =>
+    currentText.isEmpty ? submittedText : currentText;
 
 class TaskView extends StatefulWidget {
   const TaskView({required this.controller, required this.task, super.key});
@@ -140,7 +163,11 @@ class _TaskViewState extends State<TaskView> {
         const Divider(height: 1),
         _Composer(
           controller: _composer,
-          enabled: isTaskComposerEnabled(
+          inputEnabled: isTaskComposerInputEnabled(
+            task: task,
+            connected: widget.controller.isConnected,
+          ),
+          sendEnabled: isTaskComposerSendEnabled(
             task: task,
             connected: widget.controller.isConnected,
             sending: _sending,
@@ -162,28 +189,46 @@ class _TaskViewState extends State<TaskView> {
   }
 
   Future<void> _send() async {
-    final text = _composer.text.trim();
+    if (_sending) return;
+    final submittedText = _composer.text;
+    final text = submittedText.trim();
     if (text.isEmpty) return;
-    setState(() => _sending = true);
+    final submittedSkill = _selectedSkill;
+    setState(() {
+      _sending = true;
+      _selectedSkill = null;
+      _completions = const [];
+    });
+    _composer.clear();
     try {
       final disposition = await widget.controller.sendPrompt(
         text,
-        skill: _selectedSkill,
+        skill: submittedSkill,
         model: _turnSettings.model,
         effort: _turnSettings.effort,
       );
       if (!mounted) return;
-      _composer.clear();
-      setState(() {
-        _selectedSkill = null;
-        _completions = const [];
-      });
       if (disposition == TaskMessageDisposition.queued) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Message queued for the next turn.')),
         );
       }
     } catch (exception) {
+      if (mounted) {
+        final restored = restoreComposerDraft(
+          currentText: _composer.text,
+          submittedText: submittedText,
+        );
+        if (restored != _composer.text) {
+          _composer.value = TextEditingValue(
+            text: restored,
+            selection: TextSelection.collapsed(offset: restored.length),
+          );
+        }
+        if (_selectedSkill == null && submittedSkill != null) {
+          setState(() => _selectedSkill = submittedSkill);
+        }
+      }
       _showError(exception);
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -920,7 +965,8 @@ class _TaskHeader extends StatelessWidget {
 class _Composer extends StatelessWidget {
   const _Composer({
     required this.controller,
-    required this.enabled,
+    required this.inputEnabled,
+    required this.sendEnabled,
     required this.completions,
     required this.loadingCompletions,
     required this.onCompletion,
@@ -928,7 +974,8 @@ class _Composer extends StatelessWidget {
   });
 
   final TextEditingController controller;
-  final bool enabled;
+  final bool inputEnabled;
+  final bool sendEnabled;
   final List<ComposerCompletion> completions;
   final bool loadingCompletions;
   final ValueChanged<ComposerCompletion> onCompletion;
@@ -954,19 +1001,20 @@ class _Composer extends StatelessWidget {
                   Expanded(
                     child: TextField(
                       controller: controller,
-                      enabled: enabled,
+                      enabled: inputEnabled,
                       minLines: 1,
                       maxLines: 5,
                       textCapitalization: TextCapitalization.sentences,
                       decoration: InputDecoration(
-                        hintText: enabled ? 'Message Codex' : 'Read-only task',
+                        hintText:
+                            inputEnabled ? 'Message Codex' : 'Read-only task',
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   IconButton.filled(
                     tooltip: 'Send message',
-                    onPressed: enabled ? onSend : null,
+                    onPressed: sendEnabled ? onSend : null,
                     icon: const Icon(Icons.arrow_upward),
                   ),
                 ],

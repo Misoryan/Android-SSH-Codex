@@ -190,6 +190,21 @@ void main() {
     expect(reducer.state.tasks['one']?.items.single.text, 'Hello');
   });
 
+  test('applies a batch of streamed deltas with one state revision', () {
+    final epoch = reducer.beginConnection();
+
+    reducer.applyEvents(
+      epoch,
+      const [
+        TaskEvent.agentDelta('one', 'message', 'event-1', 'Hello'),
+        TaskEvent.agentDelta('one', 'message', 'event-2', ' world'),
+      ],
+    );
+
+    expect(reducer.state.tasks['one']?.items.single.text, 'Hello world');
+    expect(reducer.state.eventRevision, 1);
+  });
+
   test('replacing task items clears its expanded history window only', () {
     final epoch = reducer.beginConnection();
     final refresh = reducer.beginRefresh(epoch);
