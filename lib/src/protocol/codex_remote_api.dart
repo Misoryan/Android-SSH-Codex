@@ -37,6 +37,36 @@ final class RemoteSkill {
   final String path;
 }
 
+final class RemoteReasoningEffort {
+  const RemoteReasoningEffort({
+    required this.effort,
+    required this.description,
+  });
+
+  final String effort;
+  final String description;
+}
+
+final class RemoteModel {
+  const RemoteModel({
+    required this.id,
+    required this.model,
+    required this.displayName,
+    required this.description,
+    required this.isDefault,
+    required this.defaultReasoningEffort,
+    required this.supportedReasoningEfforts,
+  });
+
+  final String id;
+  final String model;
+  final String displayName;
+  final String description;
+  final bool isDefault;
+  final String defaultReasoningEffort;
+  final List<RemoteReasoningEffort> supportedReasoningEfforts;
+}
+
 final class RemoteThreadGoal {
   const RemoteThreadGoal({
     required this.objective,
@@ -197,6 +227,8 @@ final class CodexRemoteApi {
     String threadId,
     String text, {
     RemoteSkill? skill,
+    String? model,
+    String? effort,
   }) async {
     await _rpc.request('turn/start', {
       'threadId': threadId,
@@ -209,7 +241,29 @@ final class CodexRemoteApi {
             'path': skill.path,
           },
       ],
+      if (model != null) 'model': model,
+      if (effort != null) 'effort': effort,
     });
+  }
+
+  Future<List<RemoteModel>> readModelCatalog() async {
+    final models = <RemoteModel>[];
+    final seenIds = <String>{};
+    String? cursor;
+    do {
+      final result = _map(await _rpc.request('model/list', {
+        'limit': 100,
+        'includeHidden': false,
+        if (cursor != null) 'cursor': cursor,
+      }));
+      for (final rawModel in result['data'] as List<dynamic>? ?? const []) {
+        final model = _parseModel(_map(rawModel));
+        if (model != null && seenIds.add(model.id)) models.add(model);
+      }
+      final nextCursor = result['nextCursor'] as String?;
+      cursor = nextCursor == cursor ? null : nextCursor;
+    } while (cursor != null);
+    return List.unmodifiable(models);
   }
 
   Future<List<RemoteSkill>> listSkills(String cwd) async {
@@ -603,6 +657,44 @@ String? _firstText(
     if (value is List && value.isNotEmpty) return value.join(' ');
   }
   return null;
+}
+
+RemoteModel? _parseModel(Map<String, dynamic> raw) {
+  final id = raw['id'] as String?;
+  final model = raw['model'] as String?;
+  final displayName = raw['displayName'] as String?;
+  final defaultEffort = raw['defaultReasoningEffort'] as String?;
+  if (raw['hidden'] == true ||
+      id == null ||
+      id.isEmpty ||
+      model == null ||
+      model.isEmpty ||
+      displayName == null ||
+      displayName.isEmpty ||
+      defaultEffort == null ||
+      defaultEffort.isEmpty) {
+    return null;
+  }
+  final efforts = <RemoteReasoningEffort>[];
+  for (final rawOption
+      in raw['supportedReasoningEfforts'] as List<dynamic>? ?? const []) {
+    final option = _map(rawOption);
+    final effort = option['reasoningEffort'] as String?;
+    if (effort == null || effort.isEmpty) continue;
+    efforts.add(RemoteReasoningEffort(
+      effort: effort,
+      description: option['description'] as String? ?? '',
+    ));
+  }
+  return RemoteModel(
+    id: id,
+    model: model,
+    displayName: displayName,
+    description: raw['description'] as String? ?? '',
+    isDefault: raw['isDefault'] == true,
+    defaultReasoningEffort: defaultEffort,
+    supportedReasoningEfforts: List.unmodifiable(efforts),
+  );
 }
 
 Map<String, dynamic> _map(Object? value) {
