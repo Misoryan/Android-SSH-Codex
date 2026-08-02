@@ -2,10 +2,25 @@ import 'package:flutter/material.dart';
 
 import '../app_controller.dart';
 import '../protocol/codex_remote_api.dart';
+import '../tasks/task_message_queue.dart';
 import '../tasks/task_reducer.dart';
 import 'composer_completion.dart';
 import 'timeline_entries.dart';
 import 'widgets/timeline_item.dart';
+
+bool isTaskComposerEnabled({
+  required TaskRecord task,
+  required bool connected,
+  required bool sending,
+}) {
+  final acceptsMessages = switch (task.ownership) {
+    TaskOwnership.available ||
+    TaskOwnership.local ||
+    TaskOwnership.external =>
+      true,
+  };
+  return acceptsMessages && connected && !sending;
+}
 
 class TaskView extends StatefulWidget {
   const TaskView({required this.controller, required this.task, super.key});
@@ -112,7 +127,11 @@ class _TaskViewState extends State<TaskView> {
         const Divider(height: 1),
         _Composer(
           controller: _composer,
-          enabled: task.canWrite && widget.controller.isConnected && !_sending,
+          enabled: isTaskComposerEnabled(
+            task: task,
+            connected: widget.controller.isConnected,
+            sending: _sending,
+          ),
           completions: _completions,
           loadingCompletions: _loadingSkills,
           onCompletion: _selectCompletion,
@@ -127,13 +146,19 @@ class _TaskViewState extends State<TaskView> {
     if (text.isEmpty) return;
     setState(() => _sending = true);
     try {
-      await widget.controller.sendPrompt(text, skill: _selectedSkill);
+      final disposition =
+          await widget.controller.sendPrompt(text, skill: _selectedSkill);
       if (!mounted) return;
       _composer.clear();
       setState(() {
         _selectedSkill = null;
         _completions = const [];
       });
+      if (disposition == TaskMessageDisposition.queued) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Message queued for the next turn.')),
+        );
+      }
     } catch (exception) {
       _showError(exception);
     } finally {
