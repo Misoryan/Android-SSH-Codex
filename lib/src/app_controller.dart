@@ -534,10 +534,7 @@ final class AppController extends ChangeNotifier {
     try {
       final page = await api.readThreadTurnsPage(taskId);
       if (api != _api || epoch != _epoch) return;
-      if (!_historyLoadState.complete(
-        token,
-        nextCursor: page.nextCursor,
-      )) {
+      if (!_historyLoadState.complete(token, nextCursor: page.nextCursor)) {
         return;
       }
       _taskReducer.prependItems(epoch, taskId, page.items);
@@ -565,10 +562,7 @@ final class AppController extends ChangeNotifier {
           token.taskId != _selectedTaskId) {
         return;
       }
-      if (!_historyLoadState.complete(
-        token,
-        nextCursor: page.nextCursor,
-      )) {
+      if (!_historyLoadState.complete(token, nextCursor: page.nextCursor)) {
         return;
       }
       _taskReducer.prependItems(epoch, token.taskId, page.items);
