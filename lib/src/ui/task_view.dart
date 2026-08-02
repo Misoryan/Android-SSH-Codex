@@ -80,6 +80,10 @@ class _TaskViewState extends State<TaskView> {
             loading: widget.controller.isTaskDetailLoading(task.id),
             error: widget.controller.taskDetailError(task.id),
             onRetry: widget.controller.retrySelectedTaskDetails,
+            hasOlder: widget.controller.hasOlderTaskContext,
+            loadingOlder: widget.controller.isLoadingOlderTaskContext,
+            olderError: widget.controller.olderTaskContextError,
+            onLoadOlder: widget.controller.loadOlderSelectedTaskContext,
           ),
         ),
         for (final approval in approvals)
@@ -524,6 +528,10 @@ class TaskTimeline extends StatefulWidget {
     this.loading = false,
     this.error,
     this.onRetry,
+    this.hasOlder = false,
+    this.loadingOlder = false,
+    this.olderError,
+    this.onLoadOlder,
     super.key,
   });
 
@@ -531,6 +539,10 @@ class TaskTimeline extends StatefulWidget {
   final bool loading;
   final String? error;
   final VoidCallback? onRetry;
+  final bool hasOlder;
+  final bool loadingOlder;
+  final String? olderError;
+  final Future<void> Function()? onLoadOlder;
 
   @override
   State<TaskTimeline> createState() => _TaskTimelineState();
@@ -538,10 +550,12 @@ class TaskTimeline extends StatefulWidget {
 
 class _TaskTimelineState extends State<TaskTimeline> {
   static const _followThreshold = 96.0;
+  static const _olderLoadThreshold = 80.0;
 
   final _scrollController = ScrollController();
   var _followLatest = true;
   var _showJumpToLatest = false;
+  var _requestingOlder = false;
 
   @override
   void initState() {
@@ -570,6 +584,9 @@ class _TaskTimelineState extends State<TaskTimeline> {
 
   void _handleScroll() {
     if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels <= _olderLoadThreshold) {
+      _loadOlder();
+    }
     final awayFromLatest = _distanceFromLatest > _followThreshold;
     if (awayFromLatest == _showJumpToLatest &&
         _followLatest == !awayFromLatest) {
@@ -579,6 +596,34 @@ class _TaskTimelineState extends State<TaskTimeline> {
       _showJumpToLatest = awayFromLatest;
       _followLatest = !awayFromLatest;
     });
+  }
+
+  Future<void> _loadOlder({bool retry = false}) async {
+    final load = widget.onLoadOlder;
+    if (load == null ||
+        _requestingOlder ||
+        widget.loadingOlder ||
+        !widget.hasOlder ||
+        (!retry && widget.olderError != null) ||
+        !_scrollController.hasClients) {
+      return;
+    }
+    final previousExtent = _scrollController.position.maxScrollExtent;
+    final previousOffset = _scrollController.position.pixels;
+    setState(() => _requestingOlder = true);
+    try {
+      await load();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        final addedExtent =
+            _scrollController.position.maxScrollExtent - previousExtent;
+        if (addedExtent > 0) {
+          _scrollController.jumpTo(previousOffset + addedExtent);
+        }
+      });
+    } finally {
+      if (mounted) setState(() => _requestingOlder = false);
+    }
   }
 
   double get _distanceFromLatest =>
@@ -644,9 +689,15 @@ class _TaskTimelineState extends State<TaskTimeline> {
           child: ListView.builder(
             controller: _scrollController,
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 72),
-            itemCount: widget.items.length,
-            itemBuilder: (_, index) =>
-                TimelineItemView(item: widget.items[index]),
+            itemCount: widget.items.length + 1,
+            itemBuilder: (_, index) => index == 0
+                ? _OlderContextControl(
+                    loading: widget.loadingOlder || _requestingOlder,
+                    error: widget.olderError,
+                    hasOlder: widget.hasOlder,
+                    onRetry: () => _loadOlder(retry: true),
+                  )
+                : TimelineItemView(item: widget.items[index - 1]),
           ),
         ),
         if (_showJumpToLatest)
@@ -664,6 +715,45 @@ class _TaskTimelineState extends State<TaskTimeline> {
     );
   }
 }
+
+class _OlderContextControl extends StatelessWidget {
+  const _OlderContextControl({
+    required this.loading,
+    required this.error,
+    required this.hasOlder,
+    required this.onRetry,
+  });
+
+  final bool loading;
+  final String? error;
+  final bool hasOlder;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: 44,
+        child: Center(
+          child: loading
+              ? const SizedBox.square(
+                  key: Key('older-context-progress'),
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : error != null
+                  ? TextButton.icon(
+                      key: const Key('retry-older-context'),
+                      onPressed: onRetry,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Retry earlier context'),
+                    )
+                  : !hasOlder
+                      ? Text(
+                          'Start of task',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        )
+                      : const SizedBox.shrink(),
+        ),
+      );
 
 class _TaskHeader extends StatelessWidget {
   const _TaskHeader({
