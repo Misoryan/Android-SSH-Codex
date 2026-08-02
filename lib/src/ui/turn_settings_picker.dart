@@ -27,9 +27,8 @@ class TurnSettingsPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selectedModel = models
-        .where((candidate) => candidate.model == value.model)
-        .firstOrNull;
+    final selectedModel =
+        models.where((candidate) => candidate.model == value.model).firstOrNull;
     final efforts = selectedModel == null
         ? const <RemoteReasoningEffort>[]
         : _effortsFor(selectedModel);
