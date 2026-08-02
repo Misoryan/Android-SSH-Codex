@@ -77,10 +77,12 @@ class TurnSettingsPicker extends StatelessWidget {
                           .where((candidate) => candidate.model == modelName)
                           .firstOrNull;
                       if (model == null) return;
-                      onChanged(TurnSettings(
-                        model: model.model,
-                        effort: model.defaultReasoningEffort,
-                      ));
+                      onChanged(
+                        TurnSettings(
+                          model: model.model,
+                          effort: model.defaultReasoningEffort,
+                        ),
+                      );
                     }
                   : null,
             ),
@@ -118,10 +120,12 @@ class TurnSettingsPicker extends StatelessWidget {
               onChanged: enabled && selectedModel != null
                   ? (effort) {
                       if (effort == null) return;
-                      onChanged(TurnSettings(
-                        model: selectedModel.model,
-                        effort: effort,
-                      ));
+                      onChanged(
+                        TurnSettings(
+                          model: selectedModel.model,
+                          effort: effort,
+                        ),
+                      );
                     }
                   : null,
             ),
