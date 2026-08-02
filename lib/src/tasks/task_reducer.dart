@@ -359,8 +359,8 @@ final class TaskReducer {
     final revision = _state.eventRevision + 1;
     final tasks = Map<String, TaskRecord>.of(_state.tasks);
     for (final event in coalesced) {
-      var current = tasks[event.taskId] ??
-          TaskRecord.placeholder(event.taskId, revision);
+      var current =
+          tasks[event.taskId] ?? TaskRecord.placeholder(event.taskId, revision);
 
       switch (event._type) {
         case _TaskEventType.status:
