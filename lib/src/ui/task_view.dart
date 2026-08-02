@@ -589,12 +589,12 @@ class _TaskTimelineState extends State<TaskTimeline>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_handleScroll);
-    _scheduleLatest(animated: false, attempts: 4);
+    _scheduleLatest(animated: false);
   }
 
   @override
   void didChangeMetrics() {
-    if (_followLatest) _scheduleLatest(animated: false, attempts: 4);
+    if (_followLatest) _scheduleLatest(animated: false);
   }
 
   @override
@@ -618,7 +618,10 @@ class _TaskTimelineState extends State<TaskTimeline>
 
   void _handleScroll() {
     if (!_scrollController.hasClients) return;
-    if (_scrollController.position.pixels <= _olderLoadThreshold) {
+    final distanceFromOldest =
+        _scrollController.position.maxScrollExtent -
+            _scrollController.position.pixels;
+    if (distanceFromOldest <= _olderLoadThreshold) {
       _loadOlder();
     }
     final awayFromLatest = _distanceFromLatest > _followThreshold;
@@ -654,50 +657,22 @@ class _TaskTimelineState extends State<TaskTimeline>
         !_scrollController.hasClients) {
       return;
     }
-    final previousExtent = _scrollController.position.maxScrollExtent;
-    final previousOffset = _scrollController.position.pixels;
     setState(() => _requestingOlder = true);
     try {
       await load();
-      _preservePrependAnchor(previousExtent, previousOffset, attempts: 3);
     } finally {
       if (mounted) setState(() => _requestingOlder = false);
     }
   }
 
-  void _preservePrependAnchor(
-    double previousExtent,
-    double previousOffset, {
-    required int attempts,
-  }) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-      final addedExtent =
-          _scrollController.position.maxScrollExtent - previousExtent;
-      if (addedExtent > 0) {
-        _scrollController.jumpTo(previousOffset + addedExtent);
-      }
-      if (attempts > 1) {
-        _preservePrependAnchor(
-          previousExtent,
-          previousOffset,
-          attempts: attempts - 1,
-        );
-      }
-    });
-  }
-
   double get _distanceFromLatest =>
-      _scrollController.position.maxScrollExtent -
-      _scrollController.position.pixels;
+      _scrollController.position.pixels -
+      _scrollController.position.minScrollExtent;
 
-  void _scheduleLatest({required bool animated, int attempts = 1}) {
+  void _scheduleLatest({required bool animated}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_followLatest || !_scrollController.hasClients) return;
       _scrollToLatest(animated: animated);
-      if (attempts > 1) {
-        _scheduleLatest(animated: false, attempts: attempts - 1);
-      }
     });
   }
 
@@ -707,7 +682,7 @@ class _TaskTimelineState extends State<TaskTimeline>
       _followLatest = true;
       _showJumpToLatest = false;
     });
-    final latest = _scrollController.position.maxScrollExtent;
+    final latest = _scrollController.position.minScrollExtent;
     if (animated) {
       _scrollController.animateTo(
         latest,
@@ -758,10 +733,11 @@ class _TaskTimelineState extends State<TaskTimeline>
           child: SelectionArea(
             child: ListView.builder(
               controller: _scrollController,
+              reverse: true,
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 72),
               itemCount: entries.length + 1,
               itemBuilder: (_, index) {
-                if (index == 0) {
+                if (index == entries.length) {
                   return _OlderContextControl(
                     loading: widget.loadingOlder || _requestingOlder,
                     error: widget.olderError,
@@ -769,7 +745,7 @@ class _TaskTimelineState extends State<TaskTimeline>
                     onRetry: () => _loadOlder(retry: true),
                   );
                 }
-                return switch (entries[index - 1]) {
+                return switch (entries[entries.length - index - 1]) {
                   TimelineMessageEntry(:final item) =>
                     TimelineItemView(item: item),
                   TimelineActivityEntry(:final items) =>
