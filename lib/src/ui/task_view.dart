@@ -549,7 +549,8 @@ class TaskTimeline extends StatefulWidget {
   State<TaskTimeline> createState() => _TaskTimelineState();
 }
 
-class _TaskTimelineState extends State<TaskTimeline> {
+class _TaskTimelineState extends State<TaskTimeline>
+    with WidgetsBindingObserver {
   static const _followThreshold = 96.0;
   static const _olderLoadThreshold = 80.0;
 
@@ -561,8 +562,14 @@ class _TaskTimelineState extends State<TaskTimeline> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_handleScroll);
     _scheduleLatest(animated: false, attempts: 4);
+  }
+
+  @override
+  void didChangeMetrics() {
+    if (_followLatest) _scheduleLatest(animated: false, attempts: 4);
   }
 
   @override
@@ -577,6 +584,7 @@ class _TaskTimelineState extends State<TaskTimeline> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scrollController
       ..removeListener(_handleScroll)
       ..dispose();
