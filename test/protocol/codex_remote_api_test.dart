@@ -24,6 +24,40 @@ final class _RecordingTransport implements RpcTransport {
 }
 
 void main() {
+  test('initialization opts into paged thread history', () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    try {
+      final initializing = CodexRemoteApi(rpc).initialize();
+      final request = jsonDecode(transport.sent.single) as Map<String, dynamic>;
+
+      expect(request['method'], 'initialize');
+      expect(request['params'], {
+        'clientInfo': {
+          'name': 'android_ssh_codex',
+          'title': 'Android SSH Codex',
+          'version': '0.1.0',
+        },
+        'capabilities': {'experimentalApi': true},
+      });
+      transport.incoming.add(jsonEncode({
+        'id': request['id'],
+        'result': <String, dynamic>{},
+      }));
+
+      await initializing;
+      expect(
+        jsonDecode(transport.sent[1]),
+        {
+          'method': 'initialized',
+          'params': <String, dynamic>{},
+        },
+      );
+    } finally {
+      await rpc.close();
+    }
+  });
+
   test('reads exactly one recent 20-item task page', () async {
     final transport = _RecordingTransport();
     final rpc = JsonRpcClient(transport)..start();
@@ -85,6 +119,83 @@ void main() {
 
       await page;
       expect(transport.sent, hasLength(1));
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  test('reads the newest turn page and returns items chronologically',
+      () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    try {
+      final reading = CodexRemoteApi(rpc).readThreadTurnsPage('thr_1');
+      final request = jsonDecode(transport.sent.single) as Map<String, dynamic>;
+
+      expect(request, {
+        'method': 'thread/turns/list',
+        'id': 1,
+        'params': {
+          'threadId': 'thr_1',
+          'limit': 10,
+          'sortDirection': 'desc',
+          'itemsView': 'full',
+        },
+      });
+      transport.incoming.add(jsonEncode({
+        'id': request['id'],
+        'result': {
+          'data': [
+            {
+              'id': 'turn-new',
+              'items': [
+                {'id': 'new', 'type': 'agentMessage', 'text': 'Newest'},
+              ],
+            },
+            {
+              'id': 'turn-old',
+              'items': [
+                {'id': 'old', 'type': 'userMessage', 'text': 'Older'},
+              ],
+            },
+          ],
+          'nextCursor': 'opaque-older-cursor',
+        },
+      }));
+
+      final page = await reading;
+      expect(page.items.map((item) => item.id), ['old', 'new']);
+      expect(page.nextCursor, 'opaque-older-cursor');
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  test('passes the opaque cursor when reading an older turn page', () async {
+    final transport = _RecordingTransport();
+    final rpc = JsonRpcClient(transport)..start();
+    try {
+      final reading = CodexRemoteApi(rpc).readThreadTurnsPage(
+        'thr_1',
+        cursor: 'opaque-older-cursor',
+      );
+      final request = jsonDecode(transport.sent.single) as Map<String, dynamic>;
+
+      expect(request['params'], {
+        'threadId': 'thr_1',
+        'limit': 10,
+        'sortDirection': 'desc',
+        'itemsView': 'full',
+        'cursor': 'opaque-older-cursor',
+      });
+      transport.incoming.add(jsonEncode({
+        'id': request['id'],
+        'result': {'data': <Object>[], 'nextCursor': null},
+      }));
+
+      final page = await reading;
+      expect(page.items, isEmpty);
+      expect(page.nextCursor, isNull);
     } finally {
       await rpc.close();
     }
@@ -229,17 +340,22 @@ void main() {
       final reading = api.readActiveTurnId('thr_1');
       final readRequest =
           jsonDecode(transport.sent.single) as Map<String, dynamic>;
-      expect(readRequest['method'], 'thread/read');
+      expect(readRequest, {
+        'method': 'thread/turns/list',
+        'id': 1,
+        'params': {
+          'threadId': 'thr_1',
+          'limit': 1,
+          'sortDirection': 'desc',
+          'itemsView': 'notLoaded',
+        },
+      });
       transport.incoming.add(jsonEncode({
         'id': readRequest['id'],
         'result': {
-          'thread': {
-            'id': 'thr_1',
-            'turns': [
-              {'id': 'turn_done', 'status': 'completed', 'items': []},
-              {'id': 'turn_live', 'status': 'inProgress', 'items': []},
-            ],
-          },
+          'data': [
+            {'id': 'turn_live', 'status': 'inProgress'},
+          ],
         },
       }));
       expect(await reading, 'turn_live');
