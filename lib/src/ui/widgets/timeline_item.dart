@@ -37,9 +37,7 @@ class TimelineActivityGroup extends StatelessWidget {
           leading: const Icon(Icons.build_circle_outlined, size: 19),
           title: Text('$count work ${count == 1 ? 'event' : 'events'}'),
           subtitle: Text(
-            items
-                .map((item) => item.title ?? _activityLabel(item))
-                .join(' · '),
+            items.map((item) => item.title ?? _activityLabel(item)).join(' · '),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -80,8 +78,7 @@ class _CompactActivityRow extends StatelessWidget {
       subtitle: subtitle.isEmpty
           ? null
           : Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
-      trailing:
-          item.status == null ? null : _StatusBadge(status: item.status!),
+      trailing: item.status == null ? null : _StatusBadge(status: item.status!),
       showTrailingIcon: detail?.isNotEmpty == true,
       children: detail?.isNotEmpty == true
           ? [
