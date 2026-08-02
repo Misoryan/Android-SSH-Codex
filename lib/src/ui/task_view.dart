@@ -618,9 +618,8 @@ class _TaskTimelineState extends State<TaskTimeline>
 
   void _handleScroll() {
     if (!_scrollController.hasClients) return;
-    final distanceFromOldest =
-        _scrollController.position.maxScrollExtent -
-            _scrollController.position.pixels;
+    final distanceFromOldest = _scrollController.position.maxScrollExtent -
+        _scrollController.position.pixels;
     if (distanceFromOldest <= _olderLoadThreshold) {
       _loadOlder();
     }
