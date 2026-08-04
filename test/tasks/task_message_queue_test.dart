@@ -1,4 +1,5 @@
 import 'package:android_ssh_codex/src/tasks/task_message_queue.dart';
+import 'package:android_ssh_codex/src/tasks/task_operation_lock.dart';
 import 'package:android_ssh_codex/src/tasks/task_reducer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -27,6 +28,19 @@ void main() {
     expect(queue.threadIds, isEmpty);
     expect(queue.peek('one'), isNull);
     expect(queue.peek('two'), isNull);
+  });
+
+  test('a stale operation cannot release a replacement thread lock', () {
+    final lock = TaskOperationLock();
+    final staleOwner = lock.tryAcquire('one')!;
+
+    lock.clear();
+    final replacementOwner = lock.tryAcquire('one')!;
+    lock.release('one', staleOwner);
+
+    expect(lock.tryAcquire('one'), isNull);
+    lock.release('one', replacementOwner);
+    expect(lock.tryAcquire('one'), isNotNull);
   });
 
   test('queued messages expose an immutable FIFO snapshot and can be removed',
