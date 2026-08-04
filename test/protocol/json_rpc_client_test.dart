@@ -94,6 +94,27 @@ void main() {
     await expectLater(response, throwsA(isA<RpcDisconnectedException>()));
   });
 
+  test('times out an unanswered request and disconnects the client', () async {
+    await client.close();
+    transport = FakeTransport();
+    client = JsonRpcClient(
+      transport,
+      requestTimeout: const Duration(milliseconds: 10),
+    )..start();
+
+    final response = client.request('thread/turns/list', {'threadId': 'one'});
+
+    await expectLater(
+      response,
+      throwsA(
+        isA<RpcTimeoutException>()
+            .having((error) => error.method, 'method', 'thread/turns/list'),
+      ),
+    );
+    await client.close();
+    expect(transport.closeCalls, 1);
+  });
+
   test('closes public event streams when the transport disconnects', () async {
     final notificationsDone = client.notifications.drain<void>();
     final requestsDone = client.serverRequests.drain<void>();

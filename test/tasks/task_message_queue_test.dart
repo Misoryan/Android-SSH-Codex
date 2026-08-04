@@ -72,4 +72,31 @@ void main() {
       TaskMessageRoute.start,
     );
   });
+
+  test('a confirmed idle remote turn can flush stale running state', () {
+    expect(
+      chooseQueuedPromptAction(
+        TaskStatus.running,
+        activeTurnId: null,
+        activeTurnChecked: true,
+      ),
+      QueuedPromptAction.start,
+    );
+    expect(
+      chooseQueuedPromptAction(
+        TaskStatus.running,
+        activeTurnId: null,
+        activeTurnChecked: false,
+      ),
+      QueuedPromptAction.wait,
+    );
+    expect(
+      chooseQueuedPromptAction(
+        TaskStatus.completed,
+        activeTurnId: null,
+        activeTurnChecked: false,
+      ),
+      QueuedPromptAction.start,
+    );
+  });
 }

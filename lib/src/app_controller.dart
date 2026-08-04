@@ -13,6 +13,7 @@ import 'tasks/task_event_batcher.dart';
 import 'tasks/task_message_queue.dart';
 import 'tasks/task_operation_lock.dart';
 import 'tasks/task_reducer.dart';
+import 'tasks/task_refresh_lock.dart';
 import 'transport/codex_daemon.dart';
 import 'transport/ssh_connector.dart';
 import 'transport/ssh_unix_tunnel.dart';
@@ -111,6 +112,7 @@ final class AppController extends ChangeNotifier {
   final TaskHistoryLoadState _historyLoadState = TaskHistoryLoadState();
   final TaskMessageQueue<QueuedTaskMessage> _messageQueue = TaskMessageQueue();
   final TaskOperationLock _messageOperations = TaskOperationLock();
+  final TaskRefreshLock<CodexRemoteApi> _refreshOperations = TaskRefreshLock();
 
   List<HostProfile> _profiles = const [];
   List<RemoteProject> _projects = const [];
@@ -138,9 +140,6 @@ final class AppController extends ChangeNotifier {
   var _epoch = 0;
   var _connectionAttempt = 0;
   var _reconnectAttempt = 0;
-  var _refreshing = false;
-  var _refreshQueued = false;
-  var _refreshQueuedResetPages = false;
   var _loadingProjectPage = false;
   var _loadingUnassignedPage = false;
   var _nextQueuedMessageId = 0;
@@ -470,19 +469,17 @@ final class AppController extends ChangeNotifier {
     final connecting = _connectionPhase == RemoteConnectionPhase.connecting ||
         _connectionPhase == RemoteConnectionPhase.reconnecting;
     if (api == null || (!isConnected && !connecting)) return;
-    if (_refreshing) {
-      _refreshQueued = true;
-      _refreshQueuedResetPages = _refreshQueuedResetPages || resetPages;
-      return;
-    }
-    _refreshing = true;
+    final operation = _refreshOperations.tryAcquire(
+      api,
+      epoch,
+      resetPages: resetPages,
+    );
+    if (operation == null) return;
     var resetNext = resetPages;
     try {
-      do {
+      while (true) {
         final shouldResetPages = resetNext;
         resetNext = false;
-        _refreshQueued = false;
-        _refreshQueuedResetPages = false;
         final project = selectedProject;
         final selectedProjectId = project?.id;
         final token = _taskReducer.beginRefresh(epoch);
@@ -540,16 +537,16 @@ final class AppController extends ChangeNotifier {
         }
         notifyListeners();
         if (isConnected) _flushReadyQueuedPrompts();
-        if (_refreshQueued) {
-          resetNext = _refreshQueuedResetPages;
-        }
-      } while (_refreshQueued && isConnected);
+        final queuedResetPages = operation.takeQueuedResetPages();
+        if (queuedResetPages == null || !isConnected) break;
+        resetNext = queuedResetPages;
+      }
     } catch (exception) {
       if (throwOnError) rethrow;
       _error = _friendlyError(exception);
       notifyListeners();
     } finally {
-      _refreshing = false;
+      _refreshOperations.release(operation);
     }
   }
 
@@ -819,9 +816,7 @@ final class AppController extends ChangeNotifier {
       effort: effort,
     );
     if (_messageQueue.hasPending(task.id)) {
-      _messageQueue.enqueue(task.id, pending);
-      notifyListeners();
-      unawaited(_flushQueuedPrompt(task.id));
+      _enqueuePrompt(task.id, pending);
       return TaskMessageDisposition.queued;
     }
 
@@ -848,8 +843,7 @@ final class AppController extends ChangeNotifier {
           profileId: profileId,
         );
       case TaskMessageRoute.queue:
-        _messageQueue.enqueue(task.id, pending);
-        notifyListeners();
+        _enqueuePrompt(task.id, pending);
         return TaskMessageDisposition.queued;
       case TaskMessageRoute.start:
         await _startPendingPrompt(task, pending);
@@ -875,8 +869,7 @@ final class AppController extends ChangeNotifier {
       _ensureCurrentSession(api, attempt, epoch, profileId);
       if (refreshedTurnId == null) {
         _activeTurnIds.remove(task.id);
-        _messageQueue.enqueue(task.id, pending);
-        notifyListeners();
+        _enqueuePrompt(task.id, pending);
         return TaskMessageDisposition.queued;
       }
       if (refreshedTurnId == turnId) rethrow;
@@ -885,6 +878,12 @@ final class AppController extends ChangeNotifier {
       _ensureCurrentSession(api, attempt, epoch, profileId);
       return TaskMessageDisposition.steered;
     }
+  }
+
+  void _enqueuePrompt(String threadId, QueuedTaskMessage pending) {
+    _messageQueue.enqueue(threadId, pending);
+    notifyListeners();
+    unawaited(_flushQueuedPrompt(threadId));
   }
 
   Future<void> _startPendingPrompt(
@@ -931,11 +930,32 @@ final class AppController extends ChangeNotifier {
     try {
       final pending = _messageQueue.peek(threadId);
       final task = _taskReducer.state.tasks[threadId];
-      if (pending == null ||
-          task == null ||
-          task.status == TaskStatus.running ||
-          task.status == TaskStatus.queued ||
-          !isConnected) {
+      if (pending == null || task == null || !isConnected) {
+        return;
+      }
+      String? activeTurnId;
+      var activeTurnChecked = false;
+      if (task.status == TaskStatus.running ||
+          task.status == TaskStatus.queued) {
+        final api = _requireApi();
+        final attempt = _connectionAttempt;
+        final epoch = _epoch;
+        final profileId = _selectedHostId!;
+        activeTurnId = await api.readActiveTurnId(threadId);
+        _ensureCurrentSession(api, attempt, epoch, profileId);
+        activeTurnChecked = true;
+        if (activeTurnId == null) {
+          _activeTurnIds.remove(threadId);
+        } else {
+          _activeTurnIds[threadId] = activeTurnId;
+        }
+      }
+      if (chooseQueuedPromptAction(
+            task.status,
+            activeTurnId: activeTurnId,
+            activeTurnChecked: activeTurnChecked,
+          ) ==
+          QueuedPromptAction.wait) {
         return;
       }
       await _startPendingPrompt(task, pending);
