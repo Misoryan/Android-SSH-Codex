@@ -11,6 +11,7 @@ import 'protocol/websocket_rpc_transport.dart';
 import 'tasks/task_catalog.dart';
 import 'tasks/task_event_batcher.dart';
 import 'tasks/task_message_queue.dart';
+import 'tasks/task_operation_lock.dart';
 import 'tasks/task_reducer.dart';
 import 'transport/codex_daemon.dart';
 import 'transport/ssh_connector.dart';
@@ -109,7 +110,7 @@ final class AppController extends ChangeNotifier {
   final TaskCatalog _taskCatalog = TaskCatalog();
   final TaskHistoryLoadState _historyLoadState = TaskHistoryLoadState();
   final TaskMessageQueue<QueuedTaskMessage> _messageQueue = TaskMessageQueue();
-  final Set<String> _flushingThreadIds = {};
+  final TaskOperationLock _messageOperations = TaskOperationLock();
 
   List<HostProfile> _profiles = const [];
   List<RemoteProject> _projects = const [];
@@ -250,7 +251,7 @@ final class AppController extends ChangeNotifier {
     _reconnectTimer = null;
     _reconnectAttempt = 0;
     _messageQueue.clear();
-    _flushingThreadIds.clear();
+    _messageOperations.clear();
     await _closeTransport();
     if (attempt != _connectionAttempt) return;
     _agentDeltaBatcher.clear();
@@ -925,7 +926,8 @@ final class AppController extends ChangeNotifier {
   }
 
   Future<void> _flushQueuedPrompt(String threadId) async {
-    if (!_flushingThreadIds.add(threadId)) return;
+    final operation = _messageOperations.tryAcquire(threadId);
+    if (operation == null) return;
     try {
       final pending = _messageQueue.peek(threadId);
       final task = _taskReducer.state.tasks[threadId];
@@ -945,7 +947,7 @@ final class AppController extends ChangeNotifier {
       _error = _friendlyError(exception);
       notifyListeners();
     } finally {
-      _flushingThreadIds.remove(threadId);
+      _messageOperations.release(threadId, operation);
     }
   }
 
@@ -956,7 +958,8 @@ final class AppController extends ChangeNotifier {
   }
 
   Future<void> removeQueuedMessage(String taskId, String messageId) async {
-    if (!_flushingThreadIds.add(taskId)) {
+    final operation = _messageOperations.tryAcquire(taskId);
+    if (operation == null) {
       throw StateError('A queued message is already being sent.');
     }
     try {
@@ -968,12 +971,13 @@ final class AppController extends ChangeNotifier {
         notifyListeners();
       }
     } finally {
-      _flushingThreadIds.remove(taskId);
+      _messageOperations.release(taskId, operation);
     }
   }
 
   Future<void> steerQueuedMessage(String taskId, String messageId) async {
-    if (!_flushingThreadIds.add(taskId)) {
+    final operation = _messageOperations.tryAcquire(taskId);
+    if (operation == null) {
       throw StateError('A queued message is already being sent.');
     }
     try {
@@ -1012,7 +1016,7 @@ final class AppController extends ChangeNotifier {
       }
       if (_messageQueue.remove(taskId, pending)) notifyListeners();
     } finally {
-      _flushingThreadIds.remove(taskId);
+      _messageOperations.release(taskId, operation);
     }
   }
 
@@ -1250,7 +1254,7 @@ final class AppController extends ChangeNotifier {
     _historyLoadState.clear();
     _activeTurnIds.clear();
     _messageQueue.clear();
-    _flushingThreadIds.clear();
+    _messageOperations.clear();
     _loadedThreadIds = {};
     _ownedThreadIds = {};
     _agentDeltaBatcher.clear();
