@@ -464,6 +464,40 @@ void main() {
       'next message',
     );
   });
+
+  testWidgets('queued messages remain visible with steer and remove actions',
+      (tester) async {
+    String? steeredId;
+    String? removedId;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: QueuedMessagePanel(
+          messages: const [
+            QueuedTaskMessage(
+              id: 'queued-1',
+              text: 'Use the latest logs before continuing',
+              model: 'gpt-5',
+              effort: 'high',
+            ),
+          ],
+          enabled: true,
+          onSteer: (id) async => steeredId = id,
+          onRemove: (id) async => removedId = id,
+        ),
+      ),
+    ));
+
+    expect(find.text('Queued messages (1)'), findsOneWidget);
+    expect(find.text('Use the latest logs before continuing'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Steer queued message'));
+    await tester.pump();
+    expect(steeredId, 'queued-1');
+
+    await tester.tap(find.byTooltip('Remove queued message'));
+    await tester.pump();
+    expect(removedId, 'queued-1');
+  });
 }
 
 List<TaskItem> longTimelineItems() {

@@ -29,6 +29,21 @@ void main() {
     expect(queue.peek('two'), isNull);
   });
 
+  test('queued messages expose an immutable FIFO snapshot and can be removed',
+      () {
+    final queue = TaskMessageQueue<String>();
+    queue.enqueue('one', 'first');
+    queue.enqueue('one', 'second');
+
+    final snapshot = queue.values('one');
+
+    expect(snapshot, ['first', 'second']);
+    expect(() => snapshot.add('third'), throwsUnsupportedError);
+    expect(queue.remove('one', 'second'), isTrue);
+    expect(queue.values('one'), ['first']);
+    expect(queue.remove('one', 'missing'), isFalse);
+  });
+
   test('message routing steers active turns and queues an unresolved one', () {
     expect(
       chooseTaskMessageRoute(TaskStatus.running, activeTurnId: 'turn-1'),
