@@ -710,6 +710,7 @@ class QueuedMessagePanel extends StatelessWidget {
           ),
         ),
       );
+}
 
 class TaskCommandMenu extends StatelessWidget {
   const TaskCommandMenu({
