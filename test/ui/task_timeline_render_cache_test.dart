@@ -58,4 +58,28 @@ void main() {
 
     expect(builds, 3);
   });
+
+  test('a new callback owner invalidates the timeline render', () {
+    final items = <TaskItem>[item];
+    final cache = TaskTimelineRenderCache<Object>();
+    final firstOwner = Object();
+    final secondOwner = Object();
+    var builds = 0;
+
+    Object build() {
+      builds++;
+      return Object();
+    }
+
+    cache.resolve(
+      TaskTimelineRenderState(items: items, owner: firstOwner),
+      build,
+    );
+    cache.resolve(
+      TaskTimelineRenderState(items: items, owner: secondOwner),
+      build,
+    );
+
+    expect(builds, 2);
+  });
 }
