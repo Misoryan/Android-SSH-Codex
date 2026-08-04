@@ -22,6 +22,9 @@ final class TaskMessageQueue<T> {
 
   bool hasPending(String threadId) => _messages[threadId]?.isNotEmpty == true;
 
+  List<T> values(String threadId) =>
+      List<T>.unmodifiable(_messages[threadId] ?? const []);
+
   void enqueue(String threadId, T message) {
     _messages.putIfAbsent(threadId, () => <T>[]).add(message);
   }
@@ -37,6 +40,13 @@ final class TaskMessageQueue<T> {
     final message = pending.removeAt(0);
     if (pending.isEmpty) _messages.remove(threadId);
     return message;
+  }
+
+  bool remove(String threadId, T message) {
+    final pending = _messages[threadId];
+    if (pending == null || !pending.remove(message)) return false;
+    if (pending.isEmpty) _messages.remove(threadId);
+    return true;
   }
 
   void clear() => _messages.clear();

@@ -30,14 +30,16 @@ enum ConnectionStage {
   refresh,
 }
 
-final class _PendingTaskPrompt {
-  const _PendingTaskPrompt({
+final class QueuedTaskMessage {
+  const QueuedTaskMessage({
+    required this.id,
     required this.text,
-    required this.skill,
-    required this.model,
-    required this.effort,
+    this.skill,
+    this.model,
+    this.effort,
   });
 
+  final String id;
   final String text;
   final RemoteSkill? skill;
   final String? model;
@@ -106,7 +108,7 @@ final class AppController extends ChangeNotifier {
   );
   final TaskCatalog _taskCatalog = TaskCatalog();
   final TaskHistoryLoadState _historyLoadState = TaskHistoryLoadState();
-  final TaskMessageQueue<_PendingTaskPrompt> _messageQueue = TaskMessageQueue();
+  final TaskMessageQueue<QueuedTaskMessage> _messageQueue = TaskMessageQueue();
   final Set<String> _flushingThreadIds = {};
 
   List<HostProfile> _profiles = const [];
@@ -140,6 +142,7 @@ final class AppController extends ChangeNotifier {
   var _refreshQueuedResetPages = false;
   var _loadingProjectPage = false;
   var _loadingUnassignedPage = false;
+  var _nextQueuedMessageId = 0;
   Future<void> _autoConnectIntentWrite = Future.value();
 
   List<HostProfile> get profiles => _profiles;
@@ -196,6 +199,9 @@ final class AppController extends ChangeNotifier {
   String? taskDetailError(String taskId) => _historyLoadState.taskId == taskId
       ? _historyLoadState.initialError
       : null;
+
+  List<QueuedTaskMessage> queuedMessagesForTask(String taskId) =>
+      _messageQueue.values(taskId);
 
   Future<void> initialize() async {
     HostProfile? autoConnectProfile;
@@ -804,7 +810,8 @@ final class AppController extends ChangeNotifier {
     if (task == null) throw StateError('Select or create a task first.');
     final normalized = prompt.trim();
     if (normalized.isEmpty) throw ArgumentError('Message is required.');
-    final pending = _PendingTaskPrompt(
+    final pending = QueuedTaskMessage(
+      id: 'queued-${_nextQueuedMessageId++}',
       text: skill == null ? normalized : '\$${skill.name} $normalized',
       skill: skill,
       model: model,
@@ -812,6 +819,7 @@ final class AppController extends ChangeNotifier {
     );
     if (_messageQueue.hasPending(task.id)) {
       _messageQueue.enqueue(task.id, pending);
+      notifyListeners();
       unawaited(_flushQueuedPrompt(task.id));
       return TaskMessageDisposition.queued;
     }
@@ -840,6 +848,7 @@ final class AppController extends ChangeNotifier {
         );
       case TaskMessageRoute.queue:
         _messageQueue.enqueue(task.id, pending);
+        notifyListeners();
         return TaskMessageDisposition.queued;
       case TaskMessageRoute.start:
         await _startPendingPrompt(task, pending);
@@ -849,7 +858,7 @@ final class AppController extends ChangeNotifier {
 
   Future<TaskMessageDisposition> _steerPrompt(
     TaskRecord task,
-    _PendingTaskPrompt pending,
+    QueuedTaskMessage pending,
     String turnId, {
     required CodexRemoteApi api,
     required int attempt,
@@ -866,6 +875,7 @@ final class AppController extends ChangeNotifier {
       if (refreshedTurnId == null) {
         _activeTurnIds.remove(task.id);
         _messageQueue.enqueue(task.id, pending);
+        notifyListeners();
         return TaskMessageDisposition.queued;
       }
       if (refreshedTurnId == turnId) rethrow;
@@ -878,7 +888,7 @@ final class AppController extends ChangeNotifier {
 
   Future<void> _startPendingPrompt(
     TaskRecord task,
-    _PendingTaskPrompt pending,
+    QueuedTaskMessage pending,
   ) async {
     final api = _requireApi();
     final attempt = _connectionAttempt;
@@ -929,6 +939,7 @@ final class AppController extends ChangeNotifier {
       await _startPendingPrompt(task, pending);
       if (identical(_messageQueue.peek(threadId), pending)) {
         _messageQueue.take(threadId);
+        notifyListeners();
       }
     } catch (exception) {
       _error = _friendlyError(exception);
@@ -941,6 +952,67 @@ final class AppController extends ChangeNotifier {
   void _flushReadyQueuedPrompts() {
     for (final threadId in _messageQueue.threadIds) {
       unawaited(_flushQueuedPrompt(threadId));
+    }
+  }
+
+  Future<void> removeQueuedMessage(String taskId, String messageId) async {
+    if (!_flushingThreadIds.add(taskId)) {
+      throw StateError('A queued message is already being sent.');
+    }
+    try {
+      final pending = _messageQueue
+          .values(taskId)
+          .where((message) => message.id == messageId)
+          .firstOrNull;
+      if (pending != null && _messageQueue.remove(taskId, pending)) {
+        notifyListeners();
+      }
+    } finally {
+      _flushingThreadIds.remove(taskId);
+    }
+  }
+
+  Future<void> steerQueuedMessage(String taskId, String messageId) async {
+    if (!_flushingThreadIds.add(taskId)) {
+      throw StateError('A queued message is already being sent.');
+    }
+    try {
+      final pending = _messageQueue
+          .values(taskId)
+          .where((message) => message.id == messageId)
+          .firstOrNull;
+      if (pending == null) return;
+      final api = _requireApi();
+      final attempt = _connectionAttempt;
+      final epoch = _epoch;
+      final profileId = _selectedHostId!;
+      var turnId = _activeTurnIds[taskId];
+      if (turnId == null) {
+        turnId = await api.readActiveTurnId(taskId);
+        _ensureCurrentSession(api, attempt, epoch, profileId);
+        if (turnId != null) _activeTurnIds[taskId] = turnId;
+      }
+      if (turnId == null) {
+        throw StateError('This task does not have an active turn to steer.');
+      }
+      try {
+        await api.steerTurn(taskId, turnId, pending.text);
+        _ensureCurrentSession(api, attempt, epoch, profileId);
+      } on RpcRemoteException {
+        final refreshedTurnId = await api.readActiveTurnId(taskId);
+        _ensureCurrentSession(api, attempt, epoch, profileId);
+        if (refreshedTurnId == null) {
+          _activeTurnIds.remove(taskId);
+          throw StateError('This task no longer has an active turn to steer.');
+        }
+        if (refreshedTurnId == turnId) rethrow;
+        _activeTurnIds[taskId] = refreshedTurnId;
+        await api.steerTurn(taskId, refreshedTurnId, pending.text);
+        _ensureCurrentSession(api, attempt, epoch, profileId);
+      }
+      if (_messageQueue.remove(taskId, pending)) notifyListeners();
+    } finally {
+      _flushingThreadIds.remove(taskId);
     }
   }
 
