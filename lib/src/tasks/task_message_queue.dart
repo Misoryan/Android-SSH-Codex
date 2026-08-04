@@ -4,6 +4,8 @@ enum TaskMessageRoute { start, steer, queue }
 
 enum TaskMessageDisposition { started, steered, queued }
 
+enum QueuedPromptAction { start, wait }
+
 TaskMessageRoute chooseTaskMessageRoute(
   TaskStatus status, {
   required String? activeTurnId,
@@ -13,6 +15,19 @@ TaskMessageRoute chooseTaskMessageRoute(
     return TaskMessageRoute.queue;
   }
   return TaskMessageRoute.start;
+}
+
+QueuedPromptAction chooseQueuedPromptAction(
+  TaskStatus status, {
+  required String? activeTurnId,
+  required bool activeTurnChecked,
+}) {
+  if (activeTurnId != null) return QueuedPromptAction.wait;
+  final cachedActive =
+      status == TaskStatus.running || status == TaskStatus.queued;
+  return cachedActive && !activeTurnChecked
+      ? QueuedPromptAction.wait
+      : QueuedPromptAction.start;
 }
 
 final class TaskMessageQueue<T> {

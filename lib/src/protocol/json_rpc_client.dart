@@ -38,11 +38,37 @@ final class RpcDisconnectedException implements Exception {
   String toString() => message;
 }
 
+final class RpcTimeoutException implements Exception {
+  const RpcTimeoutException(this.method, this.requestId, this.timeout);
+
+  final String method;
+  final int requestId;
+  final Duration timeout;
+
+  @override
+  String toString() =>
+      'RPC request $method ($requestId) timed out after '
+      '${timeout.inSeconds} seconds';
+}
+
+final class _PendingRpcRequest {
+  _PendingRpcRequest(this.completer, this.timer);
+
+  final Completer<dynamic> completer;
+  final Timer timer;
+
+  void cancel() => timer.cancel();
+}
+
 final class JsonRpcClient {
-  JsonRpcClient(this._transport);
+  JsonRpcClient(
+    this._transport, {
+    this.requestTimeout = const Duration(seconds: 30),
+  });
 
   final RpcTransport _transport;
-  final Map<int, Completer<dynamic>> _pending = {};
+  final Duration requestTimeout;
+  final Map<int, _PendingRpcRequest> _pending = {};
   final StreamController<RpcNotification> _notifications =
       StreamController.broadcast();
   final StreamController<RpcServerRequest> _serverRequests =
@@ -73,8 +99,19 @@ final class JsonRpcClient {
     if (_closed) return Future.error(const RpcDisconnectedException());
     final id = _nextId++;
     final completer = Completer<dynamic>();
-    _pending[id] = completer;
-    _send({'method': method, 'id': id, if (params != null) 'params': params});
+    final timer = Timer(
+      requestTimeout,
+      () => _handleRequestTimeout(id, method),
+    );
+    final pending = _PendingRpcRequest(completer, timer);
+    _pending[id] = pending;
+    try {
+      _send({'method': method, 'id': id, if (params != null) 'params': params});
+    } catch (error, stackTrace) {
+      _pending.remove(id);
+      pending.cancel();
+      completer.completeError(error, stackTrace);
+    }
     return completer.future;
   }
 
@@ -123,8 +160,10 @@ final class JsonRpcClient {
       return;
     }
     if (id is! int) return;
-    final completer = _pending.remove(id);
-    if (completer == null) return;
+    final pending = _pending.remove(id);
+    if (pending == null) return;
+    pending.cancel();
+    final completer = pending.completer;
     final error = decoded['error'];
     if (error is Map) {
       completer.completeError(RpcRemoteException(
@@ -135,6 +174,15 @@ final class JsonRpcClient {
     } else {
       completer.complete(decoded['result']);
     }
+  }
+
+  void _handleRequestTimeout(int id, String method) {
+    final pending = _pending.remove(id);
+    if (pending == null) return;
+    pending.cancel();
+    final error = RpcTimeoutException(method, id, requestTimeout);
+    pending.completer.completeError(error);
+    _disconnect(error);
   }
 
   void _disconnect([Object? error]) {
@@ -160,8 +208,11 @@ final class JsonRpcClient {
   }
 
   void _failPending(Object error) {
-    for (final completer in _pending.values) {
-      if (!completer.isCompleted) completer.completeError(error);
+    for (final pending in _pending.values) {
+      pending.cancel();
+      if (!pending.completer.isCompleted) {
+        pending.completer.completeError(error);
+      }
     }
     _pending.clear();
   }
