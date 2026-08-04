@@ -46,8 +46,7 @@ final class RpcTimeoutException implements Exception {
   final Duration timeout;
 
   @override
-  String toString() =>
-      'RPC request $method ($requestId) timed out after '
+  String toString() => 'RPC request $method ($requestId) timed out after '
       '${timeout.inSeconds} seconds';
 }
 

@@ -112,8 +112,7 @@ final class AppController extends ChangeNotifier {
   final TaskHistoryLoadState _historyLoadState = TaskHistoryLoadState();
   final TaskMessageQueue<QueuedTaskMessage> _messageQueue = TaskMessageQueue();
   final TaskOperationLock _messageOperations = TaskOperationLock();
-  final TaskRefreshLock<CodexRemoteApi> _refreshOperations =
-      TaskRefreshLock();
+  final TaskRefreshLock<CodexRemoteApi> _refreshOperations = TaskRefreshLock();
 
   List<HostProfile> _profiles = const [];
   List<RemoteProject> _projects = const [];
