@@ -150,7 +150,7 @@ class _TaskViewState extends State<TaskView> {
             approval: approval,
             enabled: widget.controller.isConnected,
             onDecision: (decision) =>
-              widget.controller.answerApproval(approval, decision),
+                widget.controller.answerApproval(approval, decision),
           ),
         if (queuedMessages.isNotEmpty)
           QueuedMessagePanel(
@@ -258,13 +258,11 @@ class _TaskViewState extends State<TaskView> {
     }
   }
 
-  Future<void> _steerQueuedMessage(String messageId) =>
-      _runQueueAction(
+  Future<void> _steerQueuedMessage(String messageId) => _runQueueAction(
         () => widget.controller.steerQueuedMessage(widget.task.id, messageId),
       );
 
-  Future<void> _removeQueuedMessage(String messageId) =>
-      _runQueueAction(
+  Future<void> _removeQueuedMessage(String messageId) => _runQueueAction(
         () => widget.controller.removeQueuedMessage(widget.task.id, messageId),
       );
 
@@ -689,16 +687,14 @@ class QueuedMessagePanel extends StatelessWidget {
                         ),
                         IconButton(
                           tooltip: 'Steer queued message',
-                          onPressed: enabled
-                              ? () async => onSteer(message.id)
-                              : null,
+                          onPressed:
+                              enabled ? () async => onSteer(message.id) : null,
                           icon: const Icon(Icons.redo),
                         ),
                         IconButton(
                           tooltip: 'Remove queued message',
-                          onPressed: enabled
-                              ? () async => onRemove(message.id)
-                              : null,
+                          onPressed:
+                              enabled ? () async => onRemove(message.id) : null,
                           icon: const Icon(Icons.close),
                         ),
                       ],
