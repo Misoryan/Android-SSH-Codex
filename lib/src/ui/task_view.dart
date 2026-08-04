@@ -5,6 +5,7 @@ import '../protocol/codex_remote_api.dart';
 import '../tasks/task_message_queue.dart';
 import '../tasks/task_reducer.dart';
 import 'composer_completion.dart';
+import 'task_timeline_render_cache.dart';
 import 'timeline_entries.dart';
 import 'turn_settings_picker.dart';
 import 'widgets/timeline_item.dart';
@@ -58,8 +59,10 @@ class TaskView extends StatefulWidget {
 
 class _TaskViewState extends State<TaskView> {
   final _composer = TextEditingController();
+  final _timelineCache = TaskTimelineRenderCache<Widget>();
   var _sending = false;
   var _commandBusy = false;
+  var _queueActionBusy = false;
   var _lastCommandSucceeded = true;
   RemoteSkill? _selectedSkill;
   TurnSettings _turnSettings = const TurnSettings();
@@ -77,6 +80,7 @@ class _TaskViewState extends State<TaskView> {
   void didUpdateWidget(covariant TaskView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.task.id != widget.task.id) {
+      _timelineCache.clear();
       _composer.clear();
       _selectedSkill = null;
       _turnSettings = const TurnSettings();
@@ -84,6 +88,7 @@ class _TaskViewState extends State<TaskView> {
       _completions = const [];
       _sending = false;
       _commandBusy = false;
+      _queueActionBusy = false;
     }
   }
 
@@ -102,6 +107,29 @@ class _TaskViewState extends State<TaskView> {
     final approvals = widget.controller.approvals
         .where((approval) => approval.threadId == task.id)
         .toList(growable: false);
+    final queuedMessages = widget.controller.queuedMessagesForTask(task.id);
+    final timelineState = TaskTimelineRenderState(
+      items: task.items,
+      owner: widget.controller,
+      loading: widget.controller.isTaskDetailLoading(task.id),
+      error: widget.controller.taskDetailError(task.id),
+      hasOlder: widget.controller.hasOlderTaskContext,
+      loadingOlder: widget.controller.isLoadingOlderTaskContext,
+      olderError: widget.controller.olderTaskContextError,
+    );
+    final timeline = _timelineCache.resolve(
+      timelineState,
+      () => TaskTimeline(
+        items: timelineState.items,
+        loading: timelineState.loading,
+        error: timelineState.error,
+        onRetry: widget.controller.retrySelectedTaskDetails,
+        hasOlder: timelineState.hasOlder,
+        loadingOlder: timelineState.loadingOlder,
+        olderError: timelineState.olderError,
+        onLoadOlder: widget.controller.loadOlderSelectedTaskContext,
+      ),
+    );
     final content = Column(
       children: [
         _TaskHeader(
@@ -117,24 +145,20 @@ class _TaskViewState extends State<TaskView> {
             onGuide: _guideExternalTask,
             onTakeOver: _takeOverExternalTask,
           ),
-        Expanded(
-          child: TaskTimeline(
-            items: task.items,
-            loading: widget.controller.isTaskDetailLoading(task.id),
-            error: widget.controller.taskDetailError(task.id),
-            onRetry: widget.controller.retrySelectedTaskDetails,
-            hasOlder: widget.controller.hasOlderTaskContext,
-            loadingOlder: widget.controller.isLoadingOlderTaskContext,
-            olderError: widget.controller.olderTaskContextError,
-            onLoadOlder: widget.controller.loadOlderSelectedTaskContext,
-          ),
-        ),
+        Expanded(child: timeline),
         for (final approval in approvals)
           _ApprovalBar(
             approval: approval,
             enabled: widget.controller.isConnected,
             onDecision: (decision) =>
                 widget.controller.answerApproval(approval, decision),
+          ),
+        if (queuedMessages.isNotEmpty)
+          QueuedMessagePanel(
+            messages: queuedMessages,
+            enabled: widget.controller.isConnected && !_queueActionBusy,
+            onSteer: _steerQueuedMessage,
+            onRemove: _removeQueuedMessage,
           ),
         if (_selectedSkill case final skill?)
           Align(
@@ -232,6 +256,26 @@ class _TaskViewState extends State<TaskView> {
       _showError(exception);
     } finally {
       if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _steerQueuedMessage(String messageId) => _runQueueAction(
+        () => widget.controller.steerQueuedMessage(widget.task.id, messageId),
+      );
+
+  Future<void> _removeQueuedMessage(String messageId) => _runQueueAction(
+        () => widget.controller.removeQueuedMessage(widget.task.id, messageId),
+      );
+
+  Future<void> _runQueueAction(Future<void> Function() operation) async {
+    if (_queueActionBusy) return;
+    setState(() => _queueActionBusy = true);
+    try {
+      await operation();
+    } catch (exception) {
+      _showError(exception);
+    } finally {
+      if (mounted) setState(() => _queueActionBusy = false);
     }
   }
 
@@ -567,6 +611,103 @@ class _TaskViewState extends State<TaskView> {
 enum _GoalAction { save, clear }
 
 enum TaskCommand { skills, goal, compact, interrupt }
+
+class QueuedMessagePanel extends StatelessWidget {
+  const QueuedMessagePanel({
+    required this.messages,
+    required this.enabled,
+    required this.onSteer,
+    required this.onRemove,
+    super.key,
+  });
+
+  final List<QueuedTaskMessage> messages;
+  final bool enabled;
+  final Future<void> Function(String messageId) onSteer;
+  final Future<void> Function(String messageId) onRemove;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          border: Border(
+            top: BorderSide(color: Theme.of(context).dividerColor),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.schedule, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Queued messages (${messages.length})',
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 160),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: messages.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final message = messages[index];
+                    final metadata = [
+                      if (message.model case final model?) model,
+                      if (message.effort case final effort?) effort,
+                    ].join(' / ');
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  message.text,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (metadata.isNotEmpty)
+                                  Text(
+                                    metadata,
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall,
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Steer queued message',
+                          onPressed:
+                              enabled ? () async => onSteer(message.id) : null,
+                          icon: const Icon(Icons.redo),
+                        ),
+                        IconButton(
+                          tooltip: 'Remove queued message',
+                          onPressed:
+                              enabled ? () async => onRemove(message.id) : null,
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+}
 
 class TaskCommandMenu extends StatelessWidget {
   const TaskCommandMenu({
