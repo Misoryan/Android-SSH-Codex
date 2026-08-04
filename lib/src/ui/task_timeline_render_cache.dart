@@ -3,6 +3,7 @@ import '../tasks/task_reducer.dart';
 final class TaskTimelineRenderState {
   const TaskTimelineRenderState({
     required this.items,
+    this.owner,
     this.loading = false,
     this.error,
     this.hasOlder = false,
@@ -11,6 +12,7 @@ final class TaskTimelineRenderState {
   });
 
   final List<TaskItem> items;
+  final Object? owner;
   final bool loading;
   final String? error;
   final bool hasOlder;
@@ -19,6 +21,7 @@ final class TaskTimelineRenderState {
 
   bool matches(TaskTimelineRenderState other) =>
       identical(items, other.items) &&
+      identical(owner, other.owner) &&
       loading == other.loading &&
       error == other.error &&
       hasOlder == other.hasOlder &&

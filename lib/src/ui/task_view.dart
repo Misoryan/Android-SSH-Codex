@@ -110,6 +110,7 @@ class _TaskViewState extends State<TaskView> {
     final queuedMessages = widget.controller.queuedMessagesForTask(task.id);
     final timelineState = TaskTimelineRenderState(
       items: task.items,
+      owner: widget.controller,
       loading: widget.controller.isTaskDetailLoading(task.id),
       error: widget.controller.taskDetailError(task.id),
       hasOlder: widget.controller.hasOlderTaskContext,
