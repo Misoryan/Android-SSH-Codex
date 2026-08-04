@@ -5,6 +5,7 @@ import '../protocol/codex_remote_api.dart';
 import '../tasks/task_message_queue.dart';
 import '../tasks/task_reducer.dart';
 import 'composer_completion.dart';
+import 'task_timeline_render_cache.dart';
 import 'timeline_entries.dart';
 import 'turn_settings_picker.dart';
 import 'widgets/timeline_item.dart';
@@ -58,6 +59,7 @@ class TaskView extends StatefulWidget {
 
 class _TaskViewState extends State<TaskView> {
   final _composer = TextEditingController();
+  final _timelineCache = TaskTimelineRenderCache<Widget>();
   var _sending = false;
   var _commandBusy = false;
   var _lastCommandSucceeded = true;
@@ -77,6 +79,7 @@ class _TaskViewState extends State<TaskView> {
   void didUpdateWidget(covariant TaskView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.task.id != widget.task.id) {
+      _timelineCache.clear();
       _composer.clear();
       _selectedSkill = null;
       _turnSettings = const TurnSettings();
@@ -102,6 +105,27 @@ class _TaskViewState extends State<TaskView> {
     final approvals = widget.controller.approvals
         .where((approval) => approval.threadId == task.id)
         .toList(growable: false);
+    final timelineState = TaskTimelineRenderState(
+      items: task.items,
+      loading: widget.controller.isTaskDetailLoading(task.id),
+      error: widget.controller.taskDetailError(task.id),
+      hasOlder: widget.controller.hasOlderTaskContext,
+      loadingOlder: widget.controller.isLoadingOlderTaskContext,
+      olderError: widget.controller.olderTaskContextError,
+    );
+    final timeline = _timelineCache.resolve(
+      timelineState,
+      () => TaskTimeline(
+        items: timelineState.items,
+        loading: timelineState.loading,
+        error: timelineState.error,
+        onRetry: widget.controller.retrySelectedTaskDetails,
+        hasOlder: timelineState.hasOlder,
+        loadingOlder: timelineState.loadingOlder,
+        olderError: timelineState.olderError,
+        onLoadOlder: widget.controller.loadOlderSelectedTaskContext,
+      ),
+    );
     final content = Column(
       children: [
         _TaskHeader(
@@ -117,18 +141,7 @@ class _TaskViewState extends State<TaskView> {
             onGuide: _guideExternalTask,
             onTakeOver: _takeOverExternalTask,
           ),
-        Expanded(
-          child: TaskTimeline(
-            items: task.items,
-            loading: widget.controller.isTaskDetailLoading(task.id),
-            error: widget.controller.taskDetailError(task.id),
-            onRetry: widget.controller.retrySelectedTaskDetails,
-            hasOlder: widget.controller.hasOlderTaskContext,
-            loadingOlder: widget.controller.isLoadingOlderTaskContext,
-            olderError: widget.controller.olderTaskContextError,
-            onLoadOlder: widget.controller.loadOlderSelectedTaskContext,
-          ),
-        ),
+        Expanded(child: timeline),
         for (final approval in approvals)
           _ApprovalBar(
             approval: approval,
