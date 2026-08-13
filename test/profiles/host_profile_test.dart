@@ -92,7 +92,24 @@ Host work
     expect(profile.environment, isEmpty);
     expect(profile.appServerMode, AppServerMode.shared);
     expect(profile.customAppServerSocket, isNull);
+    expect(profile.windowsAppServerPort, 38765);
     expect(profile.toJson(), isNot(contains('environment')));
+  });
+
+  test('round-trips Windows TCP app-server configuration', () {
+    final profile = HostProfile(
+      id: 'windows',
+      label: 'Windows workstation',
+      hostName: 'home.example',
+      user: 'owner',
+      port: 2222,
+      appServerMode: AppServerMode.windowsTcp,
+      windowsAppServerPort: 40123,
+    );
+
+    expect(HostProfile.fromJson(profile.toJson()), profile);
+    expect(profile.appServerModeLabel, 'Windows TCP app-server');
+    expect(profile.toJson()['windowsAppServerPort'], 40123);
   });
 
   test('copyWith replaces mode and can clear a custom socket', () {

@@ -16,6 +16,8 @@ import 'tasks/task_reducer.dart';
 import 'tasks/task_refresh_lock.dart';
 import 'transport/codex_daemon.dart';
 import 'transport/ssh_connector.dart';
+import 'transport/ssh_tcp_tunnel.dart';
+import 'transport/ssh_tunnel.dart';
 import 'transport/ssh_unix_tunnel.dart';
 
 enum AppSection { hosts, tasks }
@@ -26,7 +28,7 @@ enum ConnectionStage {
   profile,
   ssh,
   remoteAppServer,
-  unixTunnel,
+  tunnel,
   rpcTunnel,
   initialize,
   refresh,
@@ -86,6 +88,10 @@ Future<String> resolveCodexSocketForProfile(
         run,
         environment: profile.environment,
       );
+    case AppServerMode.windowsTcp:
+      throw const CodexBootstrapException(
+        'Windows TCP mode does not use a Unix socket.',
+      );
   }
 }
 
@@ -130,7 +136,7 @@ final class AppController extends ChangeNotifier {
   Set<String> _ownedThreadIds = {};
   Set<String> _loadedThreadIds = {};
   SshConnection? _ssh;
-  SshUnixTunnel? _tunnel;
+  SshTunnel? _tunnel;
   JsonRpcClient? _rpc;
   CodexRemoteApi? _api;
   StreamSubscription<RpcNotification>? _notificationSubscription;
@@ -273,7 +279,7 @@ final class AppController extends ChangeNotifier {
     notifyListeners();
 
     SshConnection? ssh;
-    SshUnixTunnel? tunnel;
+    SshTunnel? tunnel;
     JsonRpcClient? rpc;
     StreamSubscription<RpcNotification>? notifications;
     StreamSubscription<RpcServerRequest>? requests;
@@ -297,30 +303,39 @@ final class AppController extends ChangeNotifier {
         secret,
         prompt: _promptForHostKey,
       );
-      stage = ConnectionStage.remoteAppServer;
       final client = ssh.client;
-      final socketPath = await resolveCodexSocketForProfile(
-        (command, {environment}) async {
-          final result = await client.runWithResult(
-            command,
-            environment: environment,
-          );
-          return SshCommandResult(
-            stdout: result.stdout,
-            stderr: result.stderr,
-            exitCode: result.exitCode,
-            exitSignal: result.exitSignal?.signalName,
-          );
-        },
-        profile,
-      );
-      if (attempt != _connectionAttempt) return;
-      stage = ConnectionStage.unixTunnel;
-      tunnel = await SshUnixTunnel.start(
-        ssh.client,
-        socketPath,
-        environment: profile.environment,
-      );
+      stage = ConnectionStage.tunnel;
+      if (profile.appServerMode == AppServerMode.windowsTcp) {
+        tunnel = await SshTcpTunnel.start(
+          client,
+          remoteHost: '127.0.0.1',
+          remotePort: profile.windowsAppServerPort,
+        );
+      } else {
+        stage = ConnectionStage.remoteAppServer;
+        final socketPath = await resolveCodexSocketForProfile(
+          (command, {environment}) async {
+            final result = await client.runWithResult(
+              command,
+              environment: environment,
+            );
+            return SshCommandResult(
+              stdout: result.stdout,
+              stderr: result.stderr,
+              exitCode: result.exitCode,
+              exitSignal: result.exitSignal?.signalName,
+            );
+          },
+          profile,
+        );
+        if (attempt != _connectionAttempt) return;
+        stage = ConnectionStage.tunnel;
+        tunnel = await SshUnixTunnel.start(
+          client,
+          socketPath,
+          environment: profile.environment,
+        );
+      }
       stage = ConnectionStage.rpcTunnel;
       final tunnelFailure = tunnel.firstFailure.then<WebSocketRpcTransport>(
         (_) => throw StateError(
@@ -1376,9 +1391,9 @@ String describeConnectionFailure(
     ConnectionStage.remoteAppServer =>
       'SSH connected successfully, but the remote Codex app-server failed: '
           '$detail',
-    ConnectionStage.unixTunnel =>
-      'SSH connected successfully, but the remote Codex socket could not be '
-          'forwarded: $detail',
+    ConnectionStage.tunnel =>
+      'SSH connected successfully, but the remote Codex endpoint could not '
+          'be forwarded: $detail',
     ConnectionStage.rpcTunnel =>
       'SSH connected successfully, but the Codex tunnel refused the local RPC '
           'connection: $detail',
