@@ -4,7 +4,7 @@ import '../ssh_config/ssh_config.dart';
 
 enum HostAuthMethod { password, privateKey }
 
-enum AppServerMode { shared, custom, isolated }
+enum AppServerMode { shared, custom, isolated, windowsTcp }
 
 final class JumpHostProfile {
   const JumpHostProfile({
@@ -59,6 +59,7 @@ final class HostProfile {
     Map<String, String> environment = const {},
     AppServerMode appServerMode = AppServerMode.shared,
     String? customAppServerSocket,
+    int windowsAppServerPort = 38765,
   }) =>
       HostProfile._(
         id: id,
@@ -72,6 +73,7 @@ final class HostProfile {
         environment: Map.unmodifiable(environment),
         appServerMode: appServerMode,
         customAppServerSocket: customAppServerSocket,
+        windowsAppServerPort: windowsAppServerPort,
       );
 
   const HostProfile._({
@@ -86,6 +88,7 @@ final class HostProfile {
     required this.environment,
     required this.appServerMode,
     required this.customAppServerSocket,
+    required this.windowsAppServerPort,
   });
 
   factory HostProfile.fromResolved(ResolvedSshHost host) => HostProfile(
@@ -132,6 +135,7 @@ final class HostProfile {
           orElse: () => AppServerMode.shared,
         ),
         customAppServerSocket: json['customAppServerSocket'] as String?,
+        windowsAppServerPort: json['windowsAppServerPort'] as int? ?? 38765,
         proxyJump: json['proxyJump'] is Map
             ? JumpHostProfile.fromJson(
                 (json['proxyJump'] as Map).cast<String, dynamic>(),
@@ -150,11 +154,13 @@ final class HostProfile {
   final Map<String, String> environment;
   final AppServerMode appServerMode;
   final String? customAppServerSocket;
+  final int windowsAppServerPort;
 
   String get appServerModeLabel => switch (appServerMode) {
         AppServerMode.shared => 'Shared app-server',
         AppServerMode.custom => 'Custom socket',
         AppServerMode.isolated => 'Isolated app-server',
+        AppServerMode.windowsTcp => 'Windows TCP app-server',
       };
 
   HostProfile copyWith({
@@ -169,6 +175,7 @@ final class HostProfile {
     Map<String, String>? environment,
     AppServerMode? appServerMode,
     String? customAppServerSocket,
+    int? windowsAppServerPort,
     bool clearProxyJump = false,
     bool clearCustomAppServerSocket = false,
   }) =>
@@ -186,6 +193,7 @@ final class HostProfile {
         customAppServerSocket: clearCustomAppServerSocket
             ? null
             : customAppServerSocket ?? this.customAppServerSocket,
+        windowsAppServerPort: windowsAppServerPort ?? this.windowsAppServerPort,
       );
 
   Map<String, dynamic> toJson() => {
@@ -202,6 +210,8 @@ final class HostProfile {
         if (appServerMode == AppServerMode.custom &&
             customAppServerSocket != null)
           'customAppServerSocket': customAppServerSocket,
+        if (appServerMode == AppServerMode.windowsTcp)
+          'windowsAppServerPort': windowsAppServerPort,
       };
 
   @override
@@ -217,6 +227,7 @@ final class HostProfile {
       other.proxyJump == proxyJump &&
       other.appServerMode == appServerMode &&
       other.customAppServerSocket == customAppServerSocket &&
+      other.windowsAppServerPort == windowsAppServerPort &&
       const MapEquality<String, String>().equals(
         other.environment,
         environment,
@@ -234,6 +245,7 @@ final class HostProfile {
         proxyJump,
         appServerMode,
         customAppServerSocket,
+        windowsAppServerPort,
         const MapEquality<String, String>().hash(environment),
       );
 }

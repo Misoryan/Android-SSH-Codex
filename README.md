@@ -126,9 +126,28 @@ Every saved host has an explicit app-server mode:
 | **Shared** | You want the same task state as Codex Desktop or other local clients. | Starts or reuses the Codex-managed daemon for the effective `CODEX_HOME`. This is the default and recommended mode. |
 | **Custom** | You already manage an app-server socket. | Connects to an absolute Unix socket path and never starts, restarts, or stops its process. |
 | **Isolated** | You want a mobile-only app-server lifecycle. | Manages a separate socket under the remote cache directory and restarts only that app-owned process when its environment changes. |
+| **Windows** | The SSH host runs Windows and exposes a loopback TCP app-server. | Forwards the configured Windows loopback port through SSH without exposing it to the network. |
 
 The selected mode is authoritative. A connection failure never silently falls
 back to another daemon or socket.
+
+### Windows host setup
+
+Windows does not provide the Unix socket used by the other modes. Start Codex
+app-server on the Windows host with a loopback-only listener instead:
+
+```powershell
+codex app-server --listen ws://127.0.0.1:38765
+```
+
+Then select **Windows** in the host editor and use port `38765`, or enter the
+matching custom port. The app reaches this listener through SSH TCP forwarding,
+so `127.0.0.1` refers to the Windows SSH host rather than the phone.
+
+Keep the app-server listener bound to `127.0.0.1`. Do not expose or port-forward
+the app-server port to a LAN or the internet. For remote access through a VPN,
+reverse proxy, or a service such as OpenFRP, forward only the SSH port; the
+Codex app-server traffic remains inside the authenticated SSH connection.
 
 ## SSH configuration
 
@@ -184,7 +203,9 @@ app-server traffic in public issues.
 Update Codex on the development machine and confirm that the selected mode is
 available. For **Shared** mode, Codex CLI 0.146.0 or newer is required to start
 the managed daemon. For **Custom** mode, verify that the configured absolute
-Unix socket exists and belongs to a running app-server.
+Unix socket exists and belongs to a running app-server. For **Windows** mode,
+verify that `codex app-server` is listening on the configured `127.0.0.1` port
+on the Windows SSH host.
 
 ### The server rejects an environment variable
 

@@ -38,6 +38,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
   late final TextEditingController _alias;
   late final TextEditingController _environment;
   late final TextEditingController _customAppServerSocket;
+  late final TextEditingController _windowsAppServerPort;
   late HostAuthMethod _authMethod;
   late AppServerMode _appServerMode;
   JumpHostProfile? _jump;
@@ -68,6 +69,9 @@ class _ProfileEditorState extends State<ProfileEditor> {
     _customAppServerSocket = TextEditingController(
       text: profile?.customAppServerSocket ?? '',
     );
+    _windowsAppServerPort = TextEditingController(
+      text: '${profile?.windowsAppServerPort ?? 38765}',
+    );
     _authMethod = profile?.authMethod ?? HostAuthMethod.password;
     _appServerMode = profile?.appServerMode ?? AppServerMode.shared;
     _jump = profile?.proxyJump;
@@ -91,6 +95,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
       _alias,
       _environment,
       _customAppServerSocket,
+      _windowsAppServerPort,
     ]) {
       controller.dispose();
     }
@@ -207,6 +212,11 @@ class _ProfileEditorState extends State<ProfileEditor> {
                         icon: Icon(Icons.lock_outline),
                         label: Text('Isolated'),
                       ),
+                      ButtonSegment(
+                        value: AppServerMode.windowsTcp,
+                        icon: Icon(Icons.desktop_windows_outlined),
+                        label: Text('Windows'),
+                      ),
                     ],
                     selected: {_appServerMode},
                     onSelectionChanged: (value) =>
@@ -221,6 +231,18 @@ class _ProfileEditorState extends State<ProfileEditor> {
                         labelText: 'App-server Unix socket',
                       ),
                       validator: _customSocketValidator,
+                    ),
+                  ],
+                  if (_appServerMode == AppServerMode.windowsTcp) ...[
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _windowsAppServerPort,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Windows app-server port',
+                        helperText: 'Codex must listen on Windows 127.0.0.1.',
+                      ),
+                      validator: _portValidator,
                     ),
                   ],
                   const SizedBox(height: 14),
@@ -397,6 +419,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
           customAppServerSocket: _appServerMode == AppServerMode.custom
               ? _customAppServerSocket.text.trim()
               : null,
+          windowsAppServerPort: int.parse(_windowsAppServerPort.text),
         ),
         HostSecret(
           password: _password.text,

@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:web_socket_channel/io.dart';
 
 import 'rpc_transport.dart';
 
@@ -10,7 +12,12 @@ final class WebSocketRpcTransport implements RpcTransport {
   final WebSocketChannel _channel;
 
   static Future<WebSocketRpcTransport> connect(Uri uri) async {
-    final channel = WebSocketChannel.connect(uri);
+    final channel = IOWebSocketChannel(
+      WebSocket.connect(
+        uri.toString(),
+        compression: CompressionOptions.compressionOff,
+      ),
+    );
     await channel.ready.timeout(const Duration(seconds: 12));
     return WebSocketRpcTransport._(channel);
   }

@@ -11,6 +11,27 @@ void main() {
     expect(find.text('Shared'), findsOneWidget);
     expect(find.text('Custom'), findsOneWidget);
     expect(find.text('Isolated'), findsOneWidget);
+    expect(find.text('Windows'), findsOneWidget);
+  });
+
+  testWidgets('Windows mode saves its loopback app-server port', (
+    tester,
+  ) async {
+    final result = await _openEditor(tester, profile: _profile());
+    await _scrollTo(tester, 'Windows');
+    await tester.tap(find.text('Windows'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      _fieldFinder('Windows app-server port'),
+      '40123',
+    );
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(result(), isNotNull);
+    expect(result()!.profile.appServerMode, AppServerMode.windowsTcp);
+    expect(result()!.profile.windowsAppServerPort, 40123);
   });
 
   testWidgets('custom mode requires an absolute Unix socket', (tester) async {

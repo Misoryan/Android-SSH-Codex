@@ -6,11 +6,12 @@ import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/foundation.dart';
 
 import 'codex_daemon.dart';
+import 'ssh_tunnel.dart';
 
 abstract interface class SshProxyChannel {
   Stream<Uint8List> get stdout;
   Stream<Uint8List> get stderr;
-  StreamSink<Uint8List> get stdin;
+  StreamSink<List<int>> get stdin;
   Future<void> get done;
   int? get exitCode;
   String? get exitSignal;
@@ -40,7 +41,7 @@ final class _SshSessionProxyChannel implements SshProxyChannel {
   Stream<Uint8List> get stderr => _session.stderr;
 
   @override
-  StreamSink<Uint8List> get stdin => _session.stdin;
+  StreamSink<List<int>> get stdin => _session.stdin;
 
   @override
   Future<void> get done => _session.done;
@@ -55,7 +56,7 @@ final class _SshSessionProxyChannel implements SshProxyChannel {
   void close() => _session.close();
 }
 
-final class SshUnixTunnel {
+final class SshUnixTunnel implements SshTunnel {
   SshUnixTunnel._(this.remoteSocketPath, this._server, this._openProxy);
 
   final String remoteSocketPath;
@@ -67,7 +68,10 @@ final class SshUnixTunnel {
   StreamSubscription<Socket>? _subscription;
   var _closed = false;
 
+  @override
   int get localPort => _server.port;
+
+  @override
   Future<void> get firstFailure => _firstFailure.future;
 
   static Future<SshUnixTunnel> start(
@@ -105,10 +109,32 @@ final class SshUnixTunnel {
     }
     _sockets.add(socket);
     SshProxyChannel? channel;
-    StreamSubscription<Uint8List>? toRemote;
+    final localDone = Completer<void>();
+    final firstLocalData = Completer<void>();
+    final pendingLocalData = <Uint8List>[];
+    final toRemote = socket.listen(
+      (chunk) {
+        final activeChannel = channel;
+        if (activeChannel == null) {
+          pendingLocalData.add(Uint8List.fromList(chunk));
+          if (!firstLocalData.isCompleted) firstLocalData.complete();
+        } else {
+          activeChannel.stdin.add(chunk);
+        }
+      },
+      onDone: localDone.complete,
+      onError: (_, __) => localDone.complete(),
+      cancelOnError: true,
+    );
     StreamSubscription<Uint8List>? toLocal;
     StreamSubscription<Uint8List>? stderrSubscription;
     try {
+      final hasLocalData = await Future.any<bool>([
+        firstLocalData.future.then((_) => true),
+        localDone.future.then((_) => false),
+      ]);
+      if (!hasLocalData || _closed) return;
+
       channel = await _openProxy();
       if (_closed) return;
       _channels.add(channel);
@@ -130,20 +156,17 @@ final class SshUnixTunnel {
         cancelOnError: true,
       );
 
-      final localDone = Completer<void>();
       final remoteDone = Completer<void>();
-      toRemote = socket.listen(
-        channel.stdin.add,
-        onDone: localDone.complete,
-        onError: (_, __) => localDone.complete(),
-        cancelOnError: true,
-      );
       toLocal = channel.stdout.listen(
         socket.add,
         onDone: remoteDone.complete,
         onError: remoteDone.completeError,
         cancelOnError: true,
       );
+      for (final chunk in pendingLocalData) {
+        channel.stdin.add(chunk);
+      }
+      pendingLocalData.clear();
       unawaited(
         channel.done.then(
           (_) {
@@ -173,7 +196,7 @@ final class SshUnixTunnel {
         _firstFailure.completeError(error, stackTrace);
       }
     } finally {
-      await toRemote?.cancel();
+      await toRemote.cancel();
       await toLocal?.cancel();
       await stderrSubscription?.cancel();
       try {
@@ -188,6 +211,7 @@ final class SshUnixTunnel {
     }
   }
 
+  @override
   Future<void> close() async {
     if (_closed) return;
     _closed = true;

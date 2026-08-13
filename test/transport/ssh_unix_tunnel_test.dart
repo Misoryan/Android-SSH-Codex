@@ -7,6 +7,38 @@ import 'package:android_ssh_codex/src/transport/ssh_unix_tunnel.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('buffers local bytes while the remote proxy channel opens', () async {
+    final remote = _FakeProxyChannel();
+    final opener = Completer<SshProxyChannel>();
+    var openerCalled = false;
+    final tunnel = await SshUnixTunnel.startWithOpener(
+      '/home/codex/.cache/android-ssh-codex/app-server.sock',
+      () {
+        openerCalled = true;
+        return opener.future;
+      },
+    );
+    addTearDown(tunnel.close);
+
+    final local = await Socket.connect(
+      InternetAddress.loopbackIPv4,
+      tunnel.localPort,
+    );
+    addTearDown(local.destroy);
+    await Future<void>.delayed(Duration.zero);
+    expect(openerCalled, isFalse);
+
+    local.add(utf8.encode('websocket-upgrade'));
+    await local.flush();
+    await Future<void>.delayed(Duration.zero);
+    expect(openerCalled, isTrue);
+
+    final received = remote.stdinController.stream.first;
+    opener.complete(remote);
+
+    expect(utf8.decode(await received), 'websocket-upgrade');
+  });
+
   test('reports the remote proxy failure before the WebSocket EOF', () async {
     final remote = _FakeProxyChannel();
     final tunnel = await SshUnixTunnel.startWithOpener(
@@ -33,6 +65,8 @@ void main() {
       tunnel.localPort,
     );
     addTearDown(local.destroy);
+    local.add(utf8.encode('websocket-upgrade'));
+    await local.flush();
     await remote.opened.future;
 
     remote.stderrController.add(
@@ -50,7 +84,7 @@ void main() {
 final class _FakeProxyChannel implements SshProxyChannel {
   final stdoutController = StreamController<Uint8List>();
   final stderrController = StreamController<Uint8List>();
-  final stdinController = StreamController<Uint8List>();
+  final stdinController = StreamController<List<int>>();
   final doneCompleter = Completer<void>();
   final opened = Completer<void>();
 
@@ -64,7 +98,7 @@ final class _FakeProxyChannel implements SshProxyChannel {
   Stream<Uint8List> get stderr => stderrController.stream;
 
   @override
-  StreamSink<Uint8List> get stdin => stdinController.sink;
+  StreamSink<List<int>> get stdin => stdinController.sink;
 
   @override
   Future<void> get done => doneCompleter.future;
