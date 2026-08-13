@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'profiles/host_profile.dart';
 import 'profiles/profile_store.dart';
 import 'projects/remote_project.dart';
+import 'projects/remote_directory.dart';
 import 'protocol/codex_remote_api.dart';
 import 'protocol/json_rpc_client.dart';
 import 'protocol/websocket_rpc_transport.dart';
@@ -198,6 +199,39 @@ final class AppController extends ChangeNotifier {
       : _taskReducer.state.tasks[_selectedTaskId];
 
   bool get isConnected => _connectionPhase == RemoteConnectionPhase.connected;
+
+  Future<RemoteDirectoryListing> listRemoteDirectories(String path) async {
+    final ssh = _ssh;
+    if (!isConnected || ssh == null) {
+      throw StateError('Connect to a host before browsing remote folders.');
+    }
+    final requestedPath = path.trim().isEmpty ? '.' : path.trim();
+    final sftp = await ssh.client.sftp();
+    try {
+      final absolutePath = await sftp.absolute(requestedPath);
+      final entries = await sftp.listdir(absolutePath);
+      final directories = entries
+          .where((entry) =>
+              entry.filename != '.' &&
+              entry.filename != '..' &&
+              entry.attr.isDirectory)
+          .map((entry) => RemoteDirectoryEntry(
+                name: entry.filename,
+                path: remotePathChild(absolutePath, entry.filename),
+              ))
+          .toList(growable: false);
+      directories.sort(
+        (first, second) =>
+            first.name.toLowerCase().compareTo(second.name.toLowerCase()),
+      );
+      return RemoteDirectoryListing(
+        path: absolutePath,
+        directories: List.unmodifiable(directories),
+      );
+    } finally {
+      sftp.close();
+    }
+  }
 
   bool isTaskDetailLoading(String taskId) =>
       _historyLoadState.taskId == taskId && _historyLoadState.isInitialLoading;

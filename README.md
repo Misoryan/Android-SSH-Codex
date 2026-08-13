@@ -57,6 +57,8 @@ an SSH exec channel and renders the resulting tasks and events.
 ### Development machine
 
 - A reachable SSH server that allows session and exec channels.
+- An SFTP subsystem if you want to browse remote folders in the project and
+  new-task dialogs. Manual path entry remains available without SFTP.
 - `/bin/sh`, `base64`, and a writable home directory.
 - Codex CLI installed and authenticated on that machine.
 - Codex CLI 0.146.0 or newer for automatic **Shared** mode startup. Use a current
