@@ -4,6 +4,7 @@ import '../app_controller.dart';
 import '../projects/remote_project.dart';
 import '../tasks/task_reducer.dart';
 import 'task_view.dart';
+import 'remote_directory_picker.dart';
 import 'turn_settings_picker.dart';
 import 'widgets/connection_badge.dart';
 
@@ -99,9 +100,14 @@ class _TaskList extends StatelessWidget {
               if (project == null)
                 TextField(
                   controller: cwd,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Remote working directory',
-                    prefixIcon: Icon(Icons.folder_outlined),
+                    prefixIcon: const Icon(Icons.folder_outlined),
+                    suffixIcon: IconButton(
+                      tooltip: 'Browse remote folders',
+                      onPressed: () => _browseDirectory(context, cwd),
+                      icon: const Icon(Icons.folder_open_outlined),
+                    ),
                   ),
                 )
               else
@@ -187,9 +193,14 @@ class _TaskList extends StatelessWidget {
               const SizedBox(height: 12),
               TextField(
                 controller: cwd,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Remote working directory',
-                  prefixIcon: Icon(Icons.folder_outlined),
+                  prefixIcon: const Icon(Icons.folder_outlined),
+                  suffixIcon: IconButton(
+                    tooltip: 'Browse remote folders',
+                    onPressed: () => _browseDirectory(context, cwd),
+                    icon: const Icon(Icons.folder_open_outlined),
+                  ),
                 ),
               ),
             ],
@@ -218,6 +229,18 @@ class _TaskList extends StatelessWidget {
     }
     name.dispose();
     cwd.dispose();
+  }
+
+  Future<void> _browseDirectory(
+    BuildContext context,
+    TextEditingController controller,
+  ) async {
+    final selected = await showRemoteDirectoryPicker(
+      context,
+      loadDirectories: this.controller.listRemoteDirectories,
+      initialPath: controller.text,
+    );
+    if (selected != null) controller.text = selected;
   }
 
   Future<void> _deleteProject(BuildContext context) async {
