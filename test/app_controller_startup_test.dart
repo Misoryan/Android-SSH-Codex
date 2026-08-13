@@ -10,9 +10,25 @@ import 'package:android_ssh_codex/src/profiles/profile_store.dart';
 import 'package:android_ssh_codex/src/projects/remote_project.dart';
 import 'package:android_ssh_codex/src/tasks/task_reducer.dart';
 import 'package:android_ssh_codex/src/transport/codex_daemon.dart';
+import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('only authentication aborts are retried as transport failures', () {
+    expect(
+      isRetryableConnectionFailure(
+        SSHAuthAbortError('Connection closed before authentication'),
+      ),
+      isTrue,
+    );
+    expect(
+      isRetryableConnectionFailure(
+        SSHAuthFailError('All authentication methods failed'),
+      ),
+      isFalse,
+    );
+  });
+
   test('remote notifications redraw only for visible state changes', () {
     expect(
       hasRemoteNotificationVisibleChange(

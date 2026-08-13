@@ -169,7 +169,7 @@ final class SshConnector {
       },
       keepAliveInterval: const Duration(seconds: 15),
       handshakeTimeout: const Duration(seconds: 15),
-      authTimeout: const Duration(seconds: 20),
+      authTimeout: const Duration(seconds: 40),
       ident: 'AndroidSSHCodex_0.1',
     );
   }

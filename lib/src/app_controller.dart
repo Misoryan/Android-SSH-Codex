@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/foundation.dart';
 
+import 'platform/connection_service.dart';
 import 'profiles/host_profile.dart';
 import 'profiles/profile_store.dart';
 import 'projects/remote_project.dart';
@@ -103,14 +105,18 @@ bool hasRemoteNotificationVisibleChange({
     event != null || activeTurnChanged;
 
 final class AppController extends ChangeNotifier {
-  AppController({required ProfileStore store})
-      : _store = store,
-        _connector = SshConnector(store);
+  AppController({
+    required ProfileStore store,
+    ConnectionService connectionService = const NoopConnectionService(),
+  })  : _store = store,
+        _connector = SshConnector(store),
+        _connectionService = connectionService;
 
   factory AppController.memory() => AppController(store: MemoryProfileStore());
 
   final ProfileStore _store;
   final SshConnector _connector;
+  final ConnectionService _connectionService;
   final TaskReducer _taskReducer = TaskReducer();
   late final TaskEventBatcher _agentDeltaBatcher = TaskEventBatcher(
     onFlush: _applyAgentDeltaBatch,
@@ -291,6 +297,11 @@ final class AppController extends ChangeNotifier {
     _reconnectAttempt = 0;
     _messageQueue.clear();
     _messageOperations.clear();
+    try {
+      await _connectionService.start(profile.label);
+    } catch (exception) {
+      debugPrint('Could not start the Android connection service: $exception');
+    }
     await _closeTransport();
     if (attempt != _connectionAttempt) return;
     _agentDeltaBatcher.clear();
@@ -410,7 +421,8 @@ final class AppController extends ChangeNotifier {
       _ownedThreadIds = ownedThreadIds;
       _loadedThreadIds = {};
       published = true;
-      unawaited(rpc.done.then((_) => _handleTransportLoss(attempt, profile)));
+      unawaited(_watchTransportLoss(rpc.done, attempt, profile));
+      unawaited(_watchTransportLoss(client.done, attempt, profile));
       stage = ConnectionStage.refresh;
       await refreshTasks(throwOnError: true, resetPages: true);
       if (attempt != _connectionAttempt) return;
@@ -431,11 +443,19 @@ final class AppController extends ChangeNotifier {
       debugPrintStack(stackTrace: stackTrace);
       _error = describeConnectionFailure(stage, exception, profile);
       if (published) await _closeTransport();
-      if (reconnecting) {
+      if (reconnecting || isRetryableConnectionFailure(exception)) {
         _connectionPhase = RemoteConnectionPhase.reconnecting;
         _scheduleReconnect(profile, attempt);
       } else {
         _connectionPhase = RemoteConnectionPhase.disconnected;
+        try {
+          await _connectionService.stop();
+        } catch (serviceException) {
+          debugPrint(
+            'Could not stop the Android connection service: '
+            '$serviceException',
+          );
+        }
       }
     } finally {
       if (!published) {
@@ -459,6 +479,44 @@ final class AppController extends ChangeNotifier {
     notifyListeners();
     await _closeTransport();
     if (attempt == _connectionAttempt) _scheduleReconnect(profile, attempt);
+  }
+
+  Future<void> _watchTransportLoss(
+    Future<void> done,
+    int attempt,
+    HostProfile profile,
+  ) async {
+    try {
+      await done;
+    } catch (_) {
+      // Both clean and failed channel closure mean the session is unusable.
+    }
+    await _handleTransportLoss(attempt, profile);
+  }
+
+  Future<void> handleAppResumed() async {
+    final profile = selectedHost;
+    if (profile == null) return;
+    if (_connectionPhase == RemoteConnectionPhase.reconnecting) {
+      _reconnectTimer?.cancel();
+      _reconnectTimer = null;
+      final nextAttempt = ++_connectionAttempt;
+      _agentDeltaBatcher.clear();
+      _epoch = _taskReducer.beginConnection(clearTasks: false);
+      await _openConnection(
+        profile,
+        attempt: nextAttempt,
+        reconnecting: true,
+      );
+      return;
+    }
+    if (_connectionPhase == RemoteConnectionPhase.connected) {
+      try {
+        await refreshTasks(throwOnError: true);
+      } catch (_) {
+        await _handleTransportLoss(_connectionAttempt, profile);
+      }
+    }
   }
 
   void _scheduleReconnect(HostProfile profile, int attempt) {
@@ -1331,6 +1389,11 @@ final class AppController extends ChangeNotifier {
     _approvals = const [];
     await _closeTransport();
     try {
+      await _connectionService.stop();
+    } catch (exception) {
+      debugPrint('Could not stop the Android connection service: $exception');
+    }
+    try {
       await _writeAutoConnectIntent(null);
     } catch (exception) {
       _error = 'Disconnected, but could not clear auto-connect: $exception';
@@ -1408,6 +1471,9 @@ String _friendlyError(Object exception) {
   return text.replaceFirst(
       RegExp(r'^(Exception|StateError|ArgumentError):\s*'), '');
 }
+
+bool isRetryableConnectionFailure(Object exception) =>
+    exception is SSHAuthAbortError;
 
 String describeConnectionFailure(
   ConnectionStage stage,
